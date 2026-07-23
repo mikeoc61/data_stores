@@ -15,7 +15,7 @@ schema in README.md.
 
 ## Next increment
 Wire into `compose_briefing.py` (lives in the briefing repo at
-`~/.openclaw/workspace-briefing/scripts/`, outside this repo):
+`~/projects/openclaw-briefing-agent/scripts/`, outside this repo):
 - Build a `payload` dict from the numeric locals the composer already computes
   (`fee_subsidy_num`, `blocks_24h`, `block_fullness`, `p50_fee`, `miner_rev`,
   `tx_rate_num`, `tx_rate_pct`, `retarget_proj_num`, `btc_price_num`,
