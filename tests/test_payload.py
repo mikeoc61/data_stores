@@ -5,6 +5,13 @@ import pathlib
 import pytest
 
 from market_warehouse import build_payload, write_snapshot, latest
+from market_warehouse.write import _ONCHAIN_COLS, _BTC_COLS
+
+
+SCHEMA_DOMAINS = [
+    ("onchain", _ONCHAIN_COLS),
+    ("btc", _BTC_COLS),
+]
 
 
 HASH_RATE = "877.84 EH/s ▲ +1.23% (7d)"
@@ -83,6 +90,11 @@ def test_blank_strings_are_null():
     assert oc["blocks_24h"] is None
     assert oc["p50_fee"] is None
     assert oc["miner_rev"] is None
+
+
+@pytest.mark.parametrize("domain, cols", SCHEMA_DOMAINS)
+def test_build_payload_keys_exactly_match_schema(domain, cols):
+    assert set(build_payload()[domain]) == set(cols)
 
 
 def test_payload_keys_match_schema_via_roundtrip(tmp_path: pathlib.Path):

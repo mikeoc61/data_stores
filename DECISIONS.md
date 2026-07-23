@@ -103,6 +103,19 @@ briefing agent, and ad-hoc analysis can query history.
   coercion. Typing ownership — *which* local feeds *which* column — stays in the
   composer. `build_payload` is a keyword-only function so that mapping can't drift
   positionally.
+- **Drift guard is test-only, and that is exhaustive — not a compromise.**
+  `build_payload`'s key set is statically determined (hardcoded literals, not
+  data-dependent): it emits the same keys on every call regardless of collector
+  output. So a commit-time test asserting bidirectional set-equality between the
+  payload keys and the writer's column tuples (`_ONCHAIN_COLS` / `_BTC_COLS`)
+  covers every reachable state; no runtime input can produce a key the test
+  didn't see. Do NOT add a runtime assert in `build_payload` — it would re-verify
+  at 5am what commit time already proved, on a path we deliberately keep boring.
+  The valuable direction is schema→builder: a column added to the schema but not
+  to `build_payload` is otherwise an invisible always-NULL failure; the equality
+  test turns it red. Structured as one `(domain, cols)` pair per table
+  (`SCHEMA_DOMAINS` in `tests/test_payload.py`) so each new table (increments 2–3)
+  extends it by one line.
 
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).
