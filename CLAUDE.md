@@ -8,29 +8,23 @@ schema in README.md.
 ## Current state
 - Scaffolded and tested: `onchain` + `btc` tables, fail-soft `write_snapshot`,
   read-only query helpers (`latest`, `moving_average`, `apathy_streak`).
-- Tests: 6 passing (`tests/test_write.py`). Validated on Python 3.14 / DuckDB
-  1.5.5 arm64.
-- NOT yet wired into the briefing composer. Nothing writes to the DB in
-  production yet.
+- WIRED and writing in production. `compose_briefing.py` calls
+  `write_snapshot(date, build_payload(...))` after the final `print()`, triply
+  guarded (optional import, try/except, no-raise writer). `build_payload` (pure,
+  in the package) is the single string→number coercion point. Verified on the Pi
+  2026-07-22: both `onchain` and `btc` rows populated and correctly typed.
+- Tests: 12 passing (`tests/test_write.py` + `tests/test_payload.py`). Validated
+  on Python 3.14 / DuckDB 1.5.5 arm64.
 
 ## Next increment
-Wire into `compose_briefing.py` (lives in the briefing repo at
-`~/projects/openclaw-briefing-agent/scripts/`, outside this repo):
-- Build a `payload` dict from the numeric locals the composer already computes
-  (`fee_subsidy_num`, `blocks_24h`, `block_fullness`, `p50_fee`, `miner_rev`,
-  `tx_rate_num`, `tx_rate_pct`, `retarget_proj_num`, `btc_price_num`,
-  `btc_sma_num`, `btc_sma_pct`, plus hash_rate/difficulty parsed to float).
-- Add one `write_snapshot(today, payload)` call AFTER `print("\n".join(lines))`
-  near line 824. Strictly last, fail-soft, so a write failure cannot block
-  delivery. ~15-line diff to the composer.
+`markets` + `credit` + `node` tables — long-format (`date, entity, ...`) for
+the multi-entity domains.
 
 ## Subsequent increments
-2. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`) for
-   the multi-entity domains.
-3. `etf_flows` from the existing `~/.openclaw/cache/farside_btc.json`.
-4. Point `psignals.py` at the DB read-only; implement miner-stress + apathy
+1. `etf_flows` from the existing `~/.openclaw/cache/farside_btc.json`.
+2. Point `psignals.py` at the DB read-only; implement miner-stress + apathy
    regime flags as SQL.
-5. Backfill: on-chain via `getblockstats` over historical heights; price via an
+3. Backfill: on-chain via `getblockstats` over historical heights; price via an
    OHLCV source; markets/credit/flows forward-only.
 
 ## Hard constraints

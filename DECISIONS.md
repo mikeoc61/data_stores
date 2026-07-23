@@ -86,6 +86,24 @@ briefing agent, and ad-hoc analysis can query history.
   historical source worth the reverse-parse). The domains where long history
   matters most for regime thresholds are exactly the ones that backfill cleanly.
 
+### 11. Payload construction (`build_payload`) lives in the package, not the composer
+- The mechanical string→number coercion (parsing the `hash_rate` display string
+  into `hash_rate_ehs` + `hash_rate_7d`, the string counters into int/float,
+  null-safety) is a pure function, `build_payload`, in `market_warehouse` — the
+  composer imports it alongside `write_snapshot`.
+- **Why not inline in `compose_briefing.py`:** that script isn't import-safe
+  (`TMP = pathlib.Path(sys.argv[1])` runs at module top, and the whole body
+  executes on import), so a function defined there can't be unit-tested from this
+  repo without refactoring the load-bearing script. Co-locating it with the
+  schema also keeps the payload↔column contract in one repo, tested against the
+  real tables via a `write_snapshot` round-trip.
+- **This does not weaken decision #4** ("all domains are typed there"). The
+  composer's `build_payload(...)` call site still declares every
+  domain→local mapping explicitly; the package function only does the generic
+  coercion. Typing ownership — *which* local feeds *which* column — stays in the
+  composer. `build_payload` is a keyword-only function so that mapping can't drift
+  positionally.
+
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).
 - Claude Project = working context. This `DECISIONS.md` + key source files go in

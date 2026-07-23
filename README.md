@@ -41,7 +41,7 @@ is never committed (`.gitignore` excludes `*.duckdb`).
 ## Seam
 
 ```python
-from market_warehouse import write_snapshot   # writer (composer)
+from market_warehouse import build_payload, write_snapshot   # writer (composer)
 from market_warehouse import latest, moving_average, apathy_streak  # readers
 ```
 
@@ -49,6 +49,11 @@ from market_warehouse import latest, moving_average, apathy_streak  # readers
 `{"onchain": {...}, "btc": {...}}` — missing domains are skipped, missing metrics
 within a domain are written as NULL (a market-closed day with null equities is
 correct data, not missing data).
+
+`build_payload(**locals)` is the pure helper the composer uses to construct that
+payload from its parsed locals — the single string→number coercion point,
+null-safe, keyword-only. It lives in the package (not inline in the composer) so
+it stays unit-testable against the real schema; see decision #11 in DECISIONS.md.
 
 ## Schema (v1)
 
@@ -71,8 +76,8 @@ pytest
 
 ## Roadmap
 
-1. `onchain` + `btc` tables, wired into the composer. **(this increment)**
-2. `markets` + `credit` + `node` (long-format for multi-entity).
+1. `onchain` + `btc` tables, wired into the composer. **(done)**
+2. `markets` + `credit` + `node` (long-format for multi-entity). **(next)**
 3. `etf_flows` from the existing `farside_btc.json`.
 4. `psignals.py` reads read-only; apathy-duration and miner-stress flags as SQL.
 5. Backfill: on-chain via `getblockstats` over historical heights; price via an
