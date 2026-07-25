@@ -5,7 +5,7 @@ import pathlib
 import duckdb
 import pytest
 
-from market_warehouse import write_snapshot, latest, apathy_streak
+from market_warehouse import write_snapshot, write_snapshots, latest, apathy_streak
 from market_warehouse.write import _ONCHAIN_COLS, _BTC_COLS
 
 
@@ -47,6 +47,30 @@ def _table_columns(db: pathlib.Path, table: str) -> set[str]:
 )
 def test_writer_cols_match_ddl(db, table, cols):
     assert _table_columns(db, table) == set(cols)
+
+
+def test_write_snapshots_batch_persists_all_across_chunks(db):
+    rows = [(f"2016-01-{d:02d}", _payload(0.7, 1.0)) for d in range(1, 8)]
+    n = write_snapshots(rows, db_path=db, chunk_size=3)
+    assert n == 7
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        count = con.execute("SELECT count(*) FROM onchain").fetchone()[0]
+    finally:
+        con.close()
+    assert count == 7
+
+
+def test_write_snapshots_is_idempotent_on_date(db):
+    write_snapshots([("2016-01-01", _payload(0.7, 1.0))], db_path=db)
+    write_snapshots([("2016-01-01", _payload(0.9, 1.0))], db_path=db)
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        count = con.execute("SELECT count(*) FROM onchain WHERE date = '2016-01-01'").fetchone()[0]
+    finally:
+        con.close()
+    assert count == 1
+    assert latest("onchain", db_path=db)["fee_subsidy"] == 0.9
 
 
 def test_write_creates_and_reads(db):

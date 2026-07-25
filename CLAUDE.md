@@ -20,16 +20,23 @@ writer, UTC-day bucketed, backfillable to 2016.
   + `deploy/` systemd .service/.timer (02:00 UTC, `Persistent=true`, idle sched) +
   `market-warehouse-daily` console script. On-chain only — btc is blocked on
   step 4. Decisions #12–#14 recorded; #4/#5/#11 annotated as superseded.
-- **Pending (need Pi/node/network, unverifiable on Mac):** deploy+run the daily
-  timer on the Pi; one-shot resumable backfill since block ~420000 (2016, step 6);
-  `btc.close` OHLCV source + backfill (step 4); compose_briefing refactor (read
-  latest complete-day row read-only, split Live vs Day(UTC) render, step 5). See
-  `BACKFILL_REFACTOR_SPEC.md` steps 4–6 + ordering.
-- Validated on Python 3.14 / DuckDB 1.5.5 arm64.
+- **Step 6 backfill done (Mac-tested):** `backfill.py` — one-shot, resumable
+  (checkpoint = warehouse `max(date)`), per-day fail-soft, batched via
+  `write_snapshots` (chunked commit, reuses the upsert contract). Default start
+  2016-01-01; `market-warehouse-backfill` console script + `-m` runnable.
+  `deploy/README.md` has the full Pi run procedure (rebuild v1→v2, 10-day
+  checkpoint, overnight `nice`/`ionice` run, gap re-runs).
+- **Pi env confirmed (2026-07-25):** unpruned + fully synced full node, Python
+  3.11.2, DuckDB 1.5.5, new API imports under minimal env — full backfill is a go.
+- **Pending (need Pi/node/network):** run the backfill overnight on the Pi + take
+  the daily timer live; `btc.close` OHLCV source + backfill (step 4);
+  compose_briefing refactor (read latest complete-day row read-only, split Live vs
+  Day(UTC) render, step 5). See `BACKFILL_REFACTOR_SPEC.md` steps 4–5 + ordering.
+- Validated on Python 3.14 (Mac) / 3.11.2 (Pi) / DuckDB 1.5.5.
 
 ## Next increment
-One-shot resumable on-chain backfill (spec step 6), then `btc.close` OHLCV
-(step 4) and the compose_briefing read/render refactor (step 5).
+`btc.close` OHLCV source wired into the daily writer + backfill (step 4), then the
+compose_briefing read/render refactor (step 5).
 
 ## Subsequent increments
 1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);

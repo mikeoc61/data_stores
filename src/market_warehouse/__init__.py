@@ -1,4 +1,4 @@
-from .write import write_snapshot
+from .write import write_snapshot, write_snapshots
 from .aggregate import aggregate_day, aggregate_range
 from .query import (
     latest,
@@ -11,6 +11,7 @@ from .query import (
 
 __all__ = [
     "write_snapshot",
+    "write_snapshots",
     "aggregate_day",
     "aggregate_range",
     "latest",

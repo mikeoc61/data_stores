@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 market-warehouse-daily = "market_warehouse.daily_update:main"
+market-warehouse-backfill = "market_warehouse.backfill:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

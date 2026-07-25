@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import duckdb
 
@@ -51,6 +51,17 @@ def _upsert(
     )
 
 
+def _write_row(
+    con: duckdb.DuckDBPyConnection,
+    date: str,
+    payload: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if "onchain" in payload:
+        _upsert(con, "onchain", date, _ONCHAIN_COLS, payload["onchain"])
+    if "btc" in payload:
+        _upsert(con, "btc", date, _BTC_COLS, payload["btc"])
+
+
 def write_snapshot(
     date: str,
     payload: Mapping[str, Mapping[str, Any]],
@@ -63,13 +74,49 @@ def write_snapshot(
         try:
             schema.apply_schema(con)
             con.execute("BEGIN TRANSACTION")
-            if "onchain" in payload:
-                _upsert(con, "onchain", date, _ONCHAIN_COLS, payload["onchain"])
-            if "btc" in payload:
-                _upsert(con, "btc", date, _BTC_COLS, payload["btc"])
+            _write_row(con, date, payload)
             con.execute("COMMIT")
         finally:
             con.close()
         return True
     except Exception:
         return False
+
+
+def write_snapshots(
+    rows: Iterable[tuple[str, Mapping[str, Mapping[str, Any]]]],
+    db_path: str | os.PathLike[str] | None = None,
+    chunk_size: int = 500,
+) -> int:
+    path = pathlib.Path(db_path) if db_path else _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(path))
+    written = 0
+    try:
+        schema.apply_schema(con)
+        batch: list[tuple[str, Mapping[str, Mapping[str, Any]]]] = []
+        for date, payload in rows:
+            batch.append((date, payload))
+            if len(batch) >= chunk_size:
+                written += _flush(con, batch)
+                batch = []
+        if batch:
+            written += _flush(con, batch)
+    finally:
+        con.close()
+    return written
+
+
+def _flush(
+    con: duckdb.DuckDBPyConnection,
+    batch: list[tuple[str, Mapping[str, Mapping[str, Any]]]],
+) -> int:
+    con.execute("BEGIN TRANSACTION")
+    try:
+        for date, payload in batch:
+            _write_row(con, date, payload)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return len(batch)

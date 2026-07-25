@@ -88,9 +88,9 @@ pytest
 2. Systemd daily writer (`daily_update`, gap-filling, sole writer) + units in
    `deploy/`. **(done — pending Pi deploy)**
 3. One-shot resumable on-chain backfill since 2016 (`getblockstats` over
-   historical heights). **(next)**
+   historical heights). **(done — pending Pi run)**
 4. `btc.close` from an external OHLCV source (+ 200-day SMA), wired into the
-   daily writer + backfill.
+   daily writer + backfill. **(next)**
 5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
    split Live vs Day (UTC) render.
 6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from

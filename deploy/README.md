@@ -24,20 +24,48 @@ env -i HOME=$HOME /usr/bin/python3 -c "from market_warehouse import aggregate_da
 
 ## Order of operations
 
-1. **Backfill first** (spec step 6 — not yet built). Deep history since 2016 is
-   owned by the backfill, not the daily job. If the warehouse is empty, the daily
-   job writes only the single last-complete day (it will not walk all of history).
-2. Dry-run a single day to confirm node access and aggregation:
+Deep history since 2016 is owned by the **backfill**, not the daily job. If the
+warehouse is empty, the daily job writes only the single last-complete day (it
+will not walk all of history). So: backfill first, then enable the timer.
+
+1. **Rebuild the DB (v1 → v2).** The old composer-era file is v1 and cannot be
+   migrated in place (`CREATE TABLE IF NOT EXISTS`); move it aside so v2 is
+   created fresh:
 
    ```bash
-   python3 -m market_warehouse.daily_update --date 2026-07-24 --dry-run --verbose
+   mv ~/data/market.duckdb ~/data/market.duckdb.v1-legacy.bak
    ```
 
-3. Force-write one specific day (the spec's single-day checkpoint):
+2. **Smoke-test aggregation** with a dry-run over a small range (no writes):
 
    ```bash
-   python3 -m market_warehouse.daily_update --date 2026-07-24 --verbose
+   python3 -m market_warehouse.backfill --start-date 2016-07-01 --end-date 2016-07-10 --dry-run --verbose
+   ```
+
+3. **Verify a real small range** writes correct rows (the spec's 10-day
+   checkpoint):
+
+   ```bash
+   python3 -m market_warehouse.backfill --start-date 2016-07-01 --end-date 2016-07-10 --verbose
    python3 -c "from market_warehouse import latest; print(latest('onchain'))"
+   ```
+
+4. **Full backfill overnight**, niced/idle so it never contends with the node.
+   It is resumable — an interruption re-runs from the last committed chunk (the
+   warehouse's own `max(date)`), so just run it again:
+
+   ```bash
+   nice -n 19 ionice -c3 python3 -m market_warehouse.backfill --verbose
+   ```
+
+   Est. ~3h to tip (~78 blocks/s at height 500k). Any days it skips (transient
+   RPC errors) are listed at the end with the re-run command; a `--start-date/
+   --end-date --no-resume` pass fills them.
+
+5. **Verify** history landed, then let the timer take the recent edge:
+
+   ```bash
+   python3 -c "from market_warehouse import latest, apathy_streak; print(latest('onchain')); print('apathy streak:', apathy_streak())"
    ```
 
 ## Install the timer
