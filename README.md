@@ -94,7 +94,7 @@ pytest
 4. `btc.close` from Kraken (CSV for 2016 depth + REST for the daily edge), folded
    into the daily writer + a one-shot `btc-backfill`. **(done — pending Pi run)**
 5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
-   split Live vs Day (UTC) render. **(next)**
+   split Live vs Day (UTC) render. **(done — pending Pi brief run)**
 6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
    `farside_btc.json`.
 7. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as

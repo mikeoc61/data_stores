@@ -41,15 +41,21 @@ writer, UTC-day bucketed, backfillable to 2016.
   writer, on-chain then btc, fail-soft). Decision #15. NOTE: existing warehouse's
   empty `btc` table won't auto-migrate — run `DROP TABLE btc;` once before the btc
   backfill (empty; no data loss).
-- **Pending (need Pi/network):** run the btc backfill on the Pi (download Kraken
-  `XBTUSD_1440.csv`); compose_briefing refactor (read latest complete-day row
-  read-only, split Live vs Day(UTC) render, step 5). See
-  `BACKFILL_REFACTOR_SPEC.md` step 5.
+- **btc LIVE on the Pi (2026-07-25):** CSV backfill (3852 closes 2015→2025-12-31)
+  + a manual daily run filled the REST edge to 07-24. Warehouse `sma200` ($72,408)
+  matched the brief's independent `btc_sma.sh` SMA (~$72,669) to ~0.4% — strong
+  cross-check. Fixed `_max_date` to tolerate a missing table (post-`DROP TABLE`).
+- **Step 5 compose_briefing done (Mac-validated render):** guarded read-only
+  `latest("onchain")`; BITCOIN section splits `Live:` (snapshot: price/hash/diff +
+  retarget/tx) from a dated `Day (UTC <date>):` line (warehouse block economics,
+  ~144 blks vs old rolling ~118); staleness warns >2d; fail-soft fallback to the
+  snapshot-only render. Render logic validated on the Mac against a real row;
+  pending a real brief run on the Pi. **Whole spec now implemented.**
 - Validated on Python 3.14 (Mac) / 3.11.2 (Pi) / DuckDB 1.5.5.
 
 ## Next increment
-compose_briefing read/render refactor (step 5): read the latest complete-day
-`onchain` row + `btc.close`/`sma200` read-only, split Live vs Day(UTC) render.
+Spec complete. Next is increment 1 below (multi-entity tables), once the Step 5
+brief render is confirmed on the Pi.
 
 ## Subsequent increments
 1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);
