@@ -28,12 +28,21 @@ Deep history since 2016 is owned by the **backfill**, not the daily job. If the
 warehouse is empty, the daily job writes only the single last-complete day (it
 will not walk all of history). So: backfill first, then enable the timer.
 
-1. **Rebuild the DB (v1 → v2).** The old composer-era file is v1 and cannot be
-   migrated in place (`CREATE TABLE IF NOT EXISTS`); move it aside so v2 is
+1. **Rebuild the DB (v1 → v3).** The old composer-era file is v1 and cannot be
+   migrated in place (`CREATE TABLE IF NOT EXISTS`); move it aside so v3 is
    created fresh:
 
    ```bash
    mv ~/data/market.duckdb ~/data/market.duckdb.v1-legacy.bak
+   ```
+
+   If you already ran the on-chain backfill under the earlier v2 schema, don't
+   rebuild (you'd lose the ~3h of on-chain history). Instead drop the empty `btc`
+   table once so the corrected `(date, close)` shape is recreated (no data — the
+   btc writer isn't live yet):
+
+   ```bash
+   python3 -c "import duckdb; c=duckdb.connect('$HOME/data/market.duckdb'); c.execute('DROP TABLE IF EXISTS btc'); c.close()"
    ```
 
 2. **Smoke-test aggregation** with a dry-run over a small range (no writes):

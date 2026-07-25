@@ -78,7 +78,14 @@ boundaries).
 ### `btc` table
 
 Change semantics: store DAILY CLOSE, not spot-at-briefing.
-- `date` PK, `close` (rename from `price`), plus `sma200`, `sma200_pct`.
+- **CORRECTION (2026-07-25):** the `btc` table is `date` PK + `close` **only**.
+  `sma200`/`sma200_pct` are **NOT stored** — they are `query.py` helpers (Step 7),
+  consistent with #13 (no stored derived series). The 200-day SMA is a pure
+  function of the close series; materializing it denormalizes and risks staleness
+  on any correction or re-backfill — the exact reasoning that dropped `*_7d`. This
+  makes the OHLCV writer and the on-chain writer the **same shape: both store raw
+  daily facts, nothing derived.**
+- `date` PK, `close` (rename from `price`).
 - Source: external OHLCV (see Step 4). The briefing continues to display LIVE
   SPOT from its own collector — that is a display value, not a stored one. Two
   different numbers for two different purposes; document this in `DECISIONS.md`.
@@ -234,6 +241,9 @@ schema:
   spine). Positional `LAG(7)` silently spans >7 calendar days across any gap and
   mislabels itself — must not be used for a "7d" figure.
 - day-pace retarget: `(blocks_day/144.0 - 1)*100`.
+- `sma200`, `sma200_pct` (CORRECTION 2026-07-25): the 200-day SMA of `btc.close`
+  and the latest close's % distance from it — query helpers, not stored columns.
+  Needs ≥200 closes; returns None below that.
 - Keep `apathy_streak`; re-verify it against renamed columns.
 
 ---

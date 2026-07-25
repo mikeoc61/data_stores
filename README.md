@@ -47,6 +47,7 @@ is never committed (`.gitignore` excludes `*.duckdb`).
 from market_warehouse import aggregate_day, aggregate_range, write_snapshot  # ingester
 from market_warehouse import latest, moving_average, apathy_streak            # readers
 from market_warehouse import hash_rate_7d, tx_rate_7d, day_pace_retarget      # derivations
+from market_warehouse import sma200, sma200_pct                              # derivations
 ```
 
 `aggregate_day(date, rpc)` returns the `onchain` payload for one UTC day, computed
@@ -60,15 +61,16 @@ query-time derivations of the daily series (`hash_rate_7d`, `tx_rate_7d`,
 `day_pace_retarget`), computed by DATE range so a gap can't mislabel a "7d"
 window. See DECISIONS #13.
 
-## Schema (v2)
+## Schema (v3)
 
 - `onchain(date PK, hash_rate_ehs, difficulty_t, blocks_day, block_fullness,
   p50_fee, miner_rev, fee_subsidy, tx_rate, retarget_proj)` — raw daily facts,
   UTC-day bucketed. `retarget_proj` is the cumulative (period-pace) projection;
   the day-pace variant is query-time.
-- `btc(date PK, close, sma200, sma200_pct)` — `close` is a daily close from an
-  external OHLCV source (distinct from the brief's live-spot display; DECISIONS
-  #14).
+- `btc(date PK, close)` — a daily close from an external OHLCV source (distinct
+  from the brief's live-spot display; DECISIONS #14). The 200-day SMA is a query
+  helper (`sma200`/`sma200_pct`), **not** stored — same raw-facts-only shape as
+  `onchain`.
 - `schema_version(version, applied_at)`
 
 Scalar domains are wide (one named column per metric). Multi-entity domains added

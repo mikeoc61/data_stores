@@ -174,13 +174,18 @@ briefing agent, and ad-hoc analysis can query history.
 - `block_fullness` is now a DOUBLE (daily mean of `total_weight/4e6·100`), not the
   old point-in-time integer.
 
-### 14. `btc.close` (stored) and the brief's live BTC spot (displayed) are two different numbers
-- The warehouse stores a **daily close** from an external OHLCV source (needs 200
-  prior closes before the first 200-day SMA). The briefing continues to display
+### 14. `btc` stores only the daily `close`; SMA is query-time; it ≠ the brief's live spot
+- **`btc(date, close)` only** (corrected 2026-07-25). `sma200`/`sma200_pct` are
+  **not stored** — they are `query.py` helpers (`sma200`, `sma200_pct`), the same
+  #13 reasoning that dropped `*_7d`: the 200-day SMA is a pure function of the
+  close series, so materializing it denormalizes and risks staleness on any
+  correction or re-backfill. This makes the OHLCV writer and the on-chain writer
+  the **same shape — both store raw daily facts, nothing derived.** (Source is an
+  external OHLCV feed; needs ≥200 closes before the first SMA value.)
+- The stored `close` is a **daily close**; the briefing continues to display
   **live spot** from its own collector — a display value, deliberately *not*
-  routed through the DB. Same asset, two numbers, two purposes: one is a
-  historical close bar for analytics, the other is "what is BTC right now." Do not
-  reconcile them.
+  routed through the DB. Same asset, two numbers, two purposes: a historical close
+  bar for analytics vs. "what is BTC right now." Do not reconcile them.
 
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).

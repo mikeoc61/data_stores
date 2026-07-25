@@ -27,7 +27,7 @@ def _payload(fee_subsidy: float, p50: float) -> dict:
             "tx_rate": 7.65,
             "retarget_proj": -0.94,
         },
-        "btc": {"close": 65853.0, "sma200": 72814.0, "sma200_pct": -9.6},
+        "btc": {"close": 65853.0},
     }
 
 
@@ -103,7 +103,7 @@ def test_missing_metric_writes_null(db):
 
 
 def test_partial_payload_btc_only(db):
-    write_snapshot("2026-07-22", {"btc": {"close": 65853.0, "sma200": None, "sma200_pct": None}}, db_path=db)
+    write_snapshot("2026-07-22", {"btc": {"close": 65853.0}}, db_path=db)
     assert latest("btc", db_path=db)["close"] == 65853.0
     assert latest("onchain", db_path=db) is None
 

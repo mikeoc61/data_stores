@@ -1,20 +1,33 @@
 from __future__ import annotations
 
+import datetime
 import pathlib
 
 import pytest
 
 from market_warehouse import (
     write_snapshot,
+    write_snapshots,
     hash_rate_7d,
     tx_rate_7d,
     day_pace_retarget,
+    sma200,
+    sma200_pct,
 )
 
 
 @pytest.fixture
 def db(tmp_path) -> pathlib.Path:
     return tmp_path / "market.duckdb"
+
+
+def _seed_closes(db: pathlib.Path, closes: list[float], start: str = "2016-01-01") -> None:
+    base = datetime.date.fromisoformat(start)
+    rows = [
+        ((base + datetime.timedelta(days=i)).isoformat(), {"btc": {"close": c}})
+        for i, c in enumerate(closes)
+    ]
+    write_snapshots(rows, db_path=db)
 
 
 def _oc(date: str, db: pathlib.Path, **cols) -> None:
@@ -49,3 +62,21 @@ def test_day_pace_retarget_latest_row(db):
 def test_day_pace_retarget_above_pace(db):
     _oc("2026-07-15", db, blocks_day=180)
     assert day_pace_retarget(db_path=db) == pytest.approx((180 / 144.0 - 1) * 100)
+
+
+def test_sma200_none_below_200_closes(db):
+    _seed_closes(db, [100.0] * 199)
+    assert sma200(db_path=db) is None
+    assert sma200_pct(db_path=db) is None
+
+
+def test_sma200_at_exactly_200_closes(db):
+    _seed_closes(db, [100.0] * 200)
+    assert sma200(db_path=db) == pytest.approx(100.0)
+    assert sma200_pct(db_path=db) == pytest.approx(0.0)
+
+
+def test_sma200_is_trailing_200_window(db):
+    _seed_closes(db, [1000.0] + [100.0] * 200)
+    assert sma200(db_path=db) == pytest.approx(100.0)
+    assert sma200_pct(db_path=db) == pytest.approx(0.0)

@@ -87,6 +87,36 @@ def tx_rate_7d(db_path: str | os.PathLike[str] | None = None) -> float | None:
     return _pct_change_7d("tx_rate", db_path)
 
 
+def _sma200_row(db_path: str | os.PathLike[str] | None) -> tuple[int, float | None, float | None]:
+    con = _connect(db_path)
+    try:
+        return con.execute(
+            """
+            WITH recent AS (
+                SELECT close FROM btc WHERE close IS NOT NULL ORDER BY date DESC LIMIT 200
+            )
+            SELECT
+                (SELECT count(*) FROM recent),
+                (SELECT avg(close) FROM recent),
+                (SELECT close FROM btc WHERE close IS NOT NULL ORDER BY date DESC LIMIT 1)
+            """
+        ).fetchone()
+    finally:
+        con.close()
+
+
+def sma200(db_path: str | os.PathLike[str] | None = None) -> float | None:
+    n, sma, _latest = _sma200_row(db_path)
+    return sma if n >= 200 else None
+
+
+def sma200_pct(db_path: str | os.PathLike[str] | None = None) -> float | None:
+    n, sma, latest = _sma200_row(db_path)
+    if n < 200 or not sma or latest is None:
+        return None
+    return (latest - sma) / sma * 100
+
+
 def day_pace_retarget(db_path: str | os.PathLike[str] | None = None) -> float | None:
     con = _connect(db_path)
     try:

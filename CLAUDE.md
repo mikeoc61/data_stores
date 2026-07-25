@@ -28,6 +28,12 @@ writer, UTC-day bucketed, backfillable to 2016.
   checkpoint, overnight `nice`/`ionice` run, gap re-runs).
 - **Pi env confirmed (2026-07-25):** unpruned + fully synced full node, Python
   3.11.2, DuckDB 1.5.5, new API imports under minimal env — full backfill is a go.
+- **Schema v3 (2026-07-25):** `btc` trimmed to `(date, close)`;
+  `sma200`/`sma200_pct` are now `query.py` helpers (corrects spec Step 1/7 for
+  #13 consistency — both writers store raw facts, nothing derived). btc OHLCV
+  writer (step 4) still unbuilt. NOTE: an existing warehouse's empty `btc` table
+  won't auto-migrate (`CREATE TABLE IF NOT EXISTS`) — run `DROP TABLE btc;` once
+  before the btc backfill (it is empty; no data loss).
 - **Pending (need Pi/node/network):** run the backfill overnight on the Pi + take
   the daily timer live; `btc.close` OHLCV source + backfill (step 4);
   compose_briefing refactor (read latest complete-day row read-only, split Live vs
@@ -51,8 +57,9 @@ compose_briefing read/render refactor (step 5).
   #12.)
 - One day-aggregation definition (`aggregate_day`), shared by daily + backfill +
   gap-fill. No second implementation.
-- No stored derived columns: `*_7d` and day-pace retarget are SQL; cumulative
-  `retarget_proj` IS stored.
+- No stored derived columns: `*_7d`, day-pace retarget, and `btc` SMA
+  (`sma200`/`sma200_pct`) are SQL query helpers; cumulative `retarget_proj` IS
+  stored. `btc` is `(date, close)` only — same raw-facts shape as `onchain`.
 - UTC calendar-day bucketing everywhere; block timestamps are non-monotonic near
   boundaries — resolve ranges by actual timestamp with margin.
 - Do NOT refactor collectors to emit JSON. Do NOT re-parse formatted display

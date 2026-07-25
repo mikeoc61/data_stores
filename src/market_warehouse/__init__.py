@@ -7,6 +7,8 @@ from .query import (
     hash_rate_7d,
     tx_rate_7d,
     day_pace_retarget,
+    sma200,
+    sma200_pct,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "hash_rate_7d",
     "tx_rate_7d",
     "day_pace_retarget",
+    "sma200",
+    "sma200_pct",
 ]
