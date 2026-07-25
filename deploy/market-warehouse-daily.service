@@ -1,0 +1,14 @@
+[Unit]
+Description=market_warehouse daily on-chain close ingest
+Documentation=file:///home/mikeoc/projects/data_stores/BACKFILL_REFACTOR_SPEC.md
+After=bitcoind.service network-online.target
+Wants=bitcoind.service
+
+[Service]
+Type=oneshot
+User=mikeoc
+Environment=HOME=/home/mikeoc
+ExecStart=/usr/bin/python3 -m market_warehouse.daily_update
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle

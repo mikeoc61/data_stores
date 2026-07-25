@@ -9,24 +9,27 @@ schema in README.md.
 Decoupling the warehouse from the briefing per `BACKFILL_REFACTOR_SPEC.md`. The
 composer is now report-only; a dedicated systemd ingester becomes the sole
 writer, UTC-day bucketed, backfillable to 2016.
-- **Done (Mac-tested, 18 passing):** composer no longer writes; **schema v2**
+- **Done (Mac-tested, 27 passing):** composer no longer writes; **schema v2**
   (`schema.py`, `write.py` col tuples) — renamed `blocks_24h`→`blocks_day`,
   `price`→`close`; dropped `hash_rate_7d`/`tx_rate_7d` (now query-time);
   `build_payload` removed. **`aggregate.py`** — `aggregate_day(date, rpc)` with an
   injectable `NodeRPC` (unit-tested via a fake chain) + `BitcoinCliRPC` for the
   Pi. **Query helpers** — `hash_rate_7d`/`tx_rate_7d` (7d DATE-range) +
-  `day_pace_retarget`. Decisions #12–#14 recorded; #4/#5/#11 annotated as
-  superseded.
-- **Pending (need Pi/node/network, unverifiable on Mac):** systemd daily writer
-  (`daily_update` @ 02:00 UTC, gap-filling, `Persistent=true`); one-shot resumable
-  backfill since block ~420000 (2016); `btc.close` OHLCV source + backfill;
-  compose_briefing refactor (read latest complete-day row read-only, split
-  Live vs Day(UTC) render). See `BACKFILL_REFACTOR_SPEC.md` steps 3–6 + ordering.
+  `day_pace_retarget`. **Step 3 daily writer** — `daily_update.py` (sole writer,
+  gap-filling, UTC-complete-day logic, fail-soft per day; `main()` inject-tested)
+  + `deploy/` systemd .service/.timer (02:00 UTC, `Persistent=true`, idle sched) +
+  `market-warehouse-daily` console script. On-chain only — btc is blocked on
+  step 4. Decisions #12–#14 recorded; #4/#5/#11 annotated as superseded.
+- **Pending (need Pi/node/network, unverifiable on Mac):** deploy+run the daily
+  timer on the Pi; one-shot resumable backfill since block ~420000 (2016, step 6);
+  `btc.close` OHLCV source + backfill (step 4); compose_briefing refactor (read
+  latest complete-day row read-only, split Live vs Day(UTC) render, step 5). See
+  `BACKFILL_REFACTOR_SPEC.md` steps 4–6 + ordering.
 - Validated on Python 3.14 / DuckDB 1.5.5 arm64.
 
 ## Next increment
-Systemd daily writer + one-shot on-chain backfill (spec steps 3 & 6). Then
-`btc.close` OHLCV (step 4) and the compose_briefing read/render refactor (step 5).
+One-shot resumable on-chain backfill (spec step 6), then `btc.close` OHLCV
+(step 4) and the compose_briefing read/render refactor (step 5).
 
 ## Subsequent increments
 1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);

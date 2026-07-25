@@ -85,12 +85,15 @@ pytest
 ## Roadmap
 
 1. Schema v2 + `aggregate_day` + query helpers (Mac-tested). **(done)**
-2. Systemd daily writer + one-shot on-chain backfill since 2016 (`getblockstats`
-   over historical heights). **(in progress)**
-3. `btc.close` from an external OHLCV source (+ 200-day SMA). **(in progress)**
-4. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
+2. Systemd daily writer (`daily_update`, gap-filling, sole writer) + units in
+   `deploy/`. **(done — pending Pi deploy)**
+3. One-shot resumable on-chain backfill since 2016 (`getblockstats` over
+   historical heights). **(next)**
+4. `btc.close` from an external OHLCV source (+ 200-day SMA), wired into the
+   daily writer + backfill.
+5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
    split Live vs Day (UTC) render.
-5. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
+6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
    `farside_btc.json`.
-6. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
+7. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
    SQL over the now-deep history.
