@@ -7,7 +7,7 @@ import duckdb
 import pytest
 
 from market_warehouse import write_snapshot, latest
-from market_warehouse.daily_update import last_complete_utc_day, main
+from market_warehouse.daily_update import _max_date, last_complete_utc_day, main
 from market_warehouse.write import _ONCHAIN_COLS
 
 UTC = datetime.timezone.utc
@@ -169,6 +169,14 @@ def test_no_btc_flag_skips_btc(db):
     rc = main(["--db", str(db), "--no-btc"], aggregate=_fake_aggregate(), price_source=src, now=now)
     assert rc == 0
     assert _btc_dates(db) == []
+
+
+def test_max_date_returns_none_for_missing_table(db):
+    write_snapshot("2016-01-01", _payload(datetime.date(2016, 1, 1)), db_path=db)
+    con = duckdb.connect(str(db))
+    con.execute("DROP TABLE btc")
+    con.close()
+    assert _max_date(db, "btc") is None
 
 
 def test_btc_source_failure_is_nonfatal(db):

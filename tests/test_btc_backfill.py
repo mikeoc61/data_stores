@@ -6,7 +6,7 @@ import pathlib
 import duckdb
 import pytest
 
-from market_warehouse import latest
+from market_warehouse import latest, write_snapshot
 from market_warehouse.btc_backfill import main
 
 UTC = datetime.timezone.utc
@@ -78,6 +78,20 @@ def test_empty_range_returns_nonzero(db):
     src = FakeSource(_closes("2016-01-01", [100.0]))
     rc = main(["--db", str(db), "--start-date", "2020-01-01", "--end-date", "2020-01-05"], price_source=src)
     assert rc == 1
+
+
+def test_backfill_when_btc_table_dropped(db):
+    write_snapshot("2016-01-01", {"onchain": {"hash_rate_ehs": 1.0}}, db_path=db)
+    con = duckdb.connect(str(db))
+    con.execute("DROP TABLE btc")
+    con.close()
+    src = FakeSource(_closes("2016-01-01", [100.0, 101.0]))
+    rc = main(
+        ["--db", str(db), "--start-date", "2016-01-01", "--end-date", "2016-01-02"],
+        price_source=src,
+    )
+    assert rc == 0
+    assert _btc_dates(db) == [datetime.date(2016, 1, 1), datetime.date(2016, 1, 2)]
 
 
 def test_end_date_defaults_to_last_complete_utc_day(db):

@@ -40,6 +40,11 @@ def _max_date(db_path: pathlib.Path, table: str) -> datetime.date | None:
         return None
     con = duckdb.connect(str(db_path), read_only=True)
     try:
+        found = con.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ?", [table]
+        ).fetchone()
+        if not found:
+            return None
         row = con.execute(f"SELECT max(date) FROM {table}").fetchone()
         return row[0] if row and row[0] is not None else None
     finally:
