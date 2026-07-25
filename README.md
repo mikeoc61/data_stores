@@ -44,7 +44,7 @@ is never committed (`.gitignore` excludes `*.duckdb`).
 ## Seam
 
 ```python
-from market_warehouse import aggregate_day, aggregate_range, write_snapshot  # ingester
+from market_warehouse import aggregate_day, write_snapshot, write_snapshots  # ingester
 from market_warehouse import latest, moving_average, apathy_streak            # readers
 from market_warehouse import hash_rate_7d, tx_rate_7d, day_pace_retarget      # derivations
 from market_warehouse import sma200, sma200_pct                              # derivations
@@ -84,17 +84,25 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Operation
+
+The ingester runs on the target host (not from tests): a one-shot backfill, then
+a daily systemd timer that appends the latest complete UTC day. Console scripts:
+`market-warehouse-backfill` (on-chain), `market-warehouse-btc-backfill --csv`
+(price), `market-warehouse-daily` (the timer's job). See `deploy/README.md` for
+the full Pi procedure and the `.service`/`.timer` units.
+
 ## Roadmap
 
-1. Schema v2 + `aggregate_day` + query helpers (Mac-tested). **(done)**
+1. Schema v3 + `aggregate_day` + query helpers (Mac-tested). **(done)**
 2. Systemd daily writer (`daily_update`, gap-filling, sole writer) + units in
-   `deploy/`. **(done — pending Pi deploy)**
+   `deploy/`. **(live on Pi)**
 3. One-shot resumable on-chain backfill since 2016 (`getblockstats` over
-   historical heights). **(done — pending Pi run)**
+   historical heights). **(live on Pi — 2016→tip)**
 4. `btc.close` from Kraken (CSV for 2016 depth + REST for the daily edge), folded
-   into the daily writer + a one-shot `btc-backfill`. **(done — pending Pi run)**
+   into the daily writer + a one-shot `btc-backfill`. **(live on Pi)**
 5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
-   split Live vs Day (UTC) render. **(done — pending Pi brief run)**
+   split Live vs Day (UTC) render. **(done — pending first Pi brief)**
 6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
    `farside_btc.json`.
 7. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
