@@ -187,6 +187,24 @@ briefing agent, and ad-hoc analysis can query history.
   routed through the DB. Same asset, two numbers, two purposes: a historical close
   bar for analytics vs. "what is BTC right now." Do not reconcile them.
 
+### 15. Kraken as the `btc.close` source: CSV for deep history, REST for the daily edge
+- **Two access paths, one canonical venue.** Kraken's public REST OHLC endpoint
+  only serves the last ~720 candles (a hard cap), so it cannot reach 2016. Deep
+  history comes from Kraken's **downloadable OHLCVT CSV** (`XBTUSD_1440.csv`), a
+  one-time manual download consumed by the one-shot `btc_backfill`. The daily
+  edge comes from the **REST** endpoint (720 days ≫ the 1-day gap), used by
+  `daily_update`. Same venue's close either way, so the series is consistent.
+- **Close = index 4 in both formats** (CSV `ts,o,h,l,close,vol,trades`; REST
+  `[ts,o,h,l,close,vwap,vol,count]`); the date is the candle's UTC open day. The
+  in-progress current day is naturally excluded because writers cap the range at
+  `last_complete_utc_day`.
+- **One writer preserved.** btc daily is folded into `daily_update` (on-chain
+  then btc, sequential in one process), not a second service — honours #12. btc
+  is **fail-soft within that run**: a Kraken outage logs a WARN and does not flip
+  the exit code or block the on-chain write (the node data is load-bearing; the
+  price edge self-heals via gap-fill). The one-shot `btc_backfill` is a separate
+  operator-run entrypoint, like the on-chain backfill.
+
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).
 - Claude Project = working context. This `DECISIONS.md` + key source files go in

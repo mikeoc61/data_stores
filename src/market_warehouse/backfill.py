@@ -8,7 +8,7 @@ import pathlib
 from typing import Any, Callable, Iterator
 
 from .aggregate import BitcoinCliRPC, aggregate_day
-from .daily_update import ONE_DAY, _max_onchain_date, last_complete_utc_day
+from .daily_update import ONE_DAY, _max_date, last_complete_utc_day
 from .write import _db_path, write_snapshots
 
 DEFAULT_START = datetime.date(2016, 1, 1)
@@ -93,7 +93,7 @@ def main(
     )
 
     if not args.no_resume:
-        existing = _max_onchain_date(db_path)
+        existing = _max_date(db_path, "onchain")
         if existing is not None and existing + ONE_DAY > start:
             log.info("resuming: warehouse has data through %s", existing)
             start = existing + ONE_DAY

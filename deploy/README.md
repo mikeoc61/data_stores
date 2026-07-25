@@ -77,6 +77,26 @@ will not walk all of history). So: backfill first, then enable the timer.
    python3 -c "from market_warehouse import latest, apathy_streak; print(latest('onchain')); print('apathy streak:', apathy_streak())"
    ```
 
+## btc close backfill (Step 4, one-shot)
+
+Deep price history comes from Kraken's downloadable OHLCVT CSV (the REST API only
+serves ~720 recent days). The daily timer keeps the recent edge current from REST.
+
+1. Download the daily CSV once from Kraken's historical market data
+   (`XBT/USD`, 1440-min interval → `XBTUSD_1440.csv`) and copy it to the Pi.
+2. Make sure the empty `btc` table is the corrected `(date, close)` shape (the
+   `DROP TABLE btc` one-liner in step 1 above); it is recreated on first write.
+3. Backfill (resumable, upsert — safe to re-run). For a 200-day SMA valid from
+   2016-01-01, start ~200 days earlier:
+
+   ```bash
+   python3 -m market_warehouse.btc_backfill --csv ~/XBTUSD_1440.csv --start-date 2015-06-15 --verbose
+   python3 -c "from market_warehouse import latest, sma200, sma200_pct; print(latest('btc')); print('sma200', sma200(), sma200_pct())"
+   ```
+
+The CSV is updated only quarterly, so it ends weeks short of today — that gap is
+filled by the daily timer's REST fetch on its next run (720-day window covers it).
+
 ## Install the timer
 
 ```bash
@@ -101,8 +121,10 @@ systemctl list-timers market-warehouse-daily.timer
   run), so the timer surfaces hard failures via `systemctl --failed`.
 - Runs `Nice=19` / IO+CPU idle class so it never competes with the node or the
   briefing.
-- **On-chain only for now.** `btc.close` ingest is blocked on the OHLCV source
-  (spec step 4) and will be added to this same job.
+- **btc close** is folded into the same run (on-chain first, then btc from
+  Kraken REST). btc is fail-soft *within* the run: a Kraken outage logs a WARN and
+  does not fail the job or block the on-chain write — it self-heals via gap-fill
+  next run. `--no-btc` skips it; `--date` (single on-chain day) skips it too.
 
 ## Logs
 

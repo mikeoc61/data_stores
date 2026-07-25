@@ -91,10 +91,10 @@ pytest
    `deploy/`. **(done — pending Pi deploy)**
 3. One-shot resumable on-chain backfill since 2016 (`getblockstats` over
    historical heights). **(done — pending Pi run)**
-4. `btc.close` from an external OHLCV source (+ 200-day SMA), wired into the
-   daily writer + backfill. **(next)**
+4. `btc.close` from Kraken (CSV for 2016 depth + REST for the daily edge), folded
+   into the daily writer + a one-shot `btc-backfill`. **(done — pending Pi run)**
 5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
-   split Live vs Day (UTC) render.
+   split Live vs Day (UTC) render. **(next)**
 6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
    `farside_btc.json`.
 7. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as

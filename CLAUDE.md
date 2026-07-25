@@ -30,19 +30,26 @@ writer, UTC-day bucketed, backfillable to 2016.
   3.11.2, DuckDB 1.5.5, new API imports under minimal env — full backfill is a go.
 - **Schema v3 (2026-07-25):** `btc` trimmed to `(date, close)`;
   `sma200`/`sma200_pct` are now `query.py` helpers (corrects spec Step 1/7 for
-  #13 consistency — both writers store raw facts, nothing derived). btc OHLCV
-  writer (step 4) still unbuilt. NOTE: an existing warehouse's empty `btc` table
-  won't auto-migrate (`CREATE TABLE IF NOT EXISTS`) — run `DROP TABLE btc;` once
-  before the btc backfill (it is empty; no data loss).
-- **Pending (need Pi/node/network):** run the backfill overnight on the Pi + take
-  the daily timer live; `btc.close` OHLCV source + backfill (step 4);
-  compose_briefing refactor (read latest complete-day row read-only, split Live vs
-  Day(UTC) render, step 5). See `BACKFILL_REFACTOR_SPEC.md` steps 4–5 + ordering.
+  #13 consistency — both writers store raw facts, nothing derived).
+- **On-chain LIVE on the Pi (2026-07-25):** backfilled 2016→tip (3858 days, 0
+  skipped; near-tip row validated incl. post-2024-halving 3.125 subsidy closure);
+  daily timer enabled + a manual `systemctl start` proved the unit end-to-end.
+- **Step 4 btc.close done (Mac-tested, 55 passing):** `price.py` — `PriceSource`
+  protocol + `KrakenCsvSource` (deep history) + `KrakenApiSource` (REST, ~720d
+  edge); parsers unit-tested with fixtures. `btc_backfill.py` one-shot
+  (`market-warehouse-btc-backfill --csv`) + btc folded into `daily_update` (one
+  writer, on-chain then btc, fail-soft). Decision #15. NOTE: existing warehouse's
+  empty `btc` table won't auto-migrate — run `DROP TABLE btc;` once before the btc
+  backfill (empty; no data loss).
+- **Pending (need Pi/network):** run the btc backfill on the Pi (download Kraken
+  `XBTUSD_1440.csv`); compose_briefing refactor (read latest complete-day row
+  read-only, split Live vs Day(UTC) render, step 5). See
+  `BACKFILL_REFACTOR_SPEC.md` step 5.
 - Validated on Python 3.14 (Mac) / 3.11.2 (Pi) / DuckDB 1.5.5.
 
 ## Next increment
-`btc.close` OHLCV source wired into the daily writer + backfill (step 4), then the
-compose_briefing read/render refactor (step 5).
+compose_briefing read/render refactor (step 5): read the latest complete-day
+`onchain` row + `btc.close`/`sma200` read-only, split Live vs Day(UTC) render.
 
 ## Subsequent increments
 1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);
