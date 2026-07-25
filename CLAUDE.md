@@ -6,31 +6,45 @@ re-scraping. Full rationale in DECISIONS.md (read it first); design + seam +
 schema in README.md.
 
 ## Current state
-- Scaffolded and tested: `onchain` + `btc` tables, fail-soft `write_snapshot`,
-  read-only query helpers (`latest`, `moving_average`, `apathy_streak`).
-- WIRED and writing in production. `compose_briefing.py` calls
-  `write_snapshot(date, build_payload(...))` after the final `print()`, triply
-  guarded (optional import, try/except, no-raise writer). `build_payload` (pure,
-  in the package) is the single string→number coercion point. Verified on the Pi
-  2026-07-22: both `onchain` and `btc` rows populated and correctly typed.
-- Tests: 12 passing (`tests/test_write.py` + `tests/test_payload.py`). Validated
-  on Python 3.14 / DuckDB 1.5.5 arm64.
+Decoupling the warehouse from the briefing per `BACKFILL_REFACTOR_SPEC.md`. The
+composer is now report-only; a dedicated systemd ingester becomes the sole
+writer, UTC-day bucketed, backfillable to 2016.
+- **Done (Mac-tested, 18 passing):** composer no longer writes; **schema v2**
+  (`schema.py`, `write.py` col tuples) — renamed `blocks_24h`→`blocks_day`,
+  `price`→`close`; dropped `hash_rate_7d`/`tx_rate_7d` (now query-time);
+  `build_payload` removed. **`aggregate.py`** — `aggregate_day(date, rpc)` with an
+  injectable `NodeRPC` (unit-tested via a fake chain) + `BitcoinCliRPC` for the
+  Pi. **Query helpers** — `hash_rate_7d`/`tx_rate_7d` (7d DATE-range) +
+  `day_pace_retarget`. Decisions #12–#14 recorded; #4/#5/#11 annotated as
+  superseded.
+- **Pending (need Pi/node/network, unverifiable on Mac):** systemd daily writer
+  (`daily_update` @ 02:00 UTC, gap-filling, `Persistent=true`); one-shot resumable
+  backfill since block ~420000 (2016); `btc.close` OHLCV source + backfill;
+  compose_briefing refactor (read latest complete-day row read-only, split
+  Live vs Day(UTC) render). See `BACKFILL_REFACTOR_SPEC.md` steps 3–6 + ordering.
+- Validated on Python 3.14 / DuckDB 1.5.5 arm64.
 
 ## Next increment
-`markets` + `credit` + `node` tables — long-format (`date, entity, ...`) for
-the multi-entity domains.
+Systemd daily writer + one-shot on-chain backfill (spec steps 3 & 6). Then
+`btc.close` OHLCV (step 4) and the compose_briefing read/render refactor (step 5).
 
 ## Subsequent increments
-1. `etf_flows` from the existing `~/.openclaw/cache/farside_btc.json`.
-2. Point `psignals.py` at the DB read-only; implement miner-stress + apathy
-   regime flags as SQL.
-3. Backfill: on-chain via `getblockstats` over historical heights; price via an
-   OHLCV source; markets/credit/flows forward-only.
+1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);
+   `etf_flows` from `~/.openclaw/cache/farside_btc.json`.
+2. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
+   SQL over the now-deep history.
 
 ## Hard constraints
 - Persistence MUST never break briefing delivery (the load-bearing function).
-- `compose_briefing.py` is the ONLY write point — all domains are typed there.
-- Single-writer: composer writes; everyone else opens `read_only=True`.
+- The async ingester is the ONLY writer; the briefing and everyone else open
+  `read_only=True`. (Was: composer-as-writer — superseded 2026-07-23, DECISIONS
+  #12.)
+- One day-aggregation definition (`aggregate_day`), shared by daily + backfill +
+  gap-fill. No second implementation.
+- No stored derived columns: `*_7d` and day-pace retarget are SQL; cumulative
+  `retarget_proj` IS stored.
+- UTC calendar-day bucketing everywhere; block timestamps are non-monotonic near
+  boundaries — resolve ranges by actual timestamp with margin.
 - Do NOT refactor collectors to emit JSON. Do NOT re-parse formatted display
   text back into numbers.
 - NULL is valid data (market-closed day = null equities, correctly recorded),

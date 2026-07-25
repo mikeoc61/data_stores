@@ -45,6 +45,12 @@ briefing agent, and ad-hoc analysis can query history.
   never schema changes. Schema-evolution-proof for the parts that grow.
 
 ### 4. Write point: the composer, not the collectors
+- **SUPERSEDED by #12 (2026-07-23).** The composer was the writer because it was
+  the only place all domains were simultaneously typed. But it writes a
+  mid-session, HST-keyed, display-derived scrape — the wrong timing, basis, and
+  fidelity for a time series. A dedicated ingester replaces it. Kept for the
+  *why*: don't reverse-parse display text (still true — the ingester reads the
+  node directly, not the brief).
 - `compose_briefing.py` already parses every domain into typed, null-guarded
   numeric locals. That's the only place all domains are simultaneously typed.
 - So: **capture what the composer already parsed** — do not refactor collectors
@@ -53,6 +59,9 @@ briefing agent, and ad-hoc analysis can query history.
 - One new module, one call site at the end of the composer.
 
 ### 5. Single-writer discipline enforced at the connection level
+- **AMENDED by #12 (2026-07-23):** the single-writer *discipline* holds; the
+  *identity* of the writer moves from the composer to the async ingester. The
+  composer now opens `read_only=True` like every other consumer.
 - Composer opens read-write; every other consumer opens `read_only=True`.
 - DuckDB is single-writer per file; the once-daily serial composer is the
   natural sole writer with no locking coordination. Concurrent reads are fine.
@@ -87,6 +96,14 @@ briefing agent, and ad-hoc analysis can query history.
   matters most for regime thresholds are exactly the ones that backfill cleanly.
 
 ### 11. Payload construction (`build_payload`) lives in the package, not the composer
+- **REMOVED by #13 (2026-07-23).** `build_payload` existed to coerce the
+  composer's display strings into typed columns. Once the composer stopped
+  writing (#12), that job vanished; `aggregate_day` now produces the payload from
+  node RPC numbers directly. The drift-guard *principle* below survives — the
+  same static-key, bidirectional set-equality test now runs against
+  `aggregate_day` output and the DDL (`test_writer_cols_match_ddl`,
+  `test_aggregate_day_keys_match_schema`). Kept for the reasoning, which still
+  governs the replacement.
 - The mechanical string→number coercion (parsing the `hash_rate` display string
   into `hash_rate_ehs` + `hash_rate_7d`, the string counters into int/float,
   null-safety) is a pure function, `build_payload`, in `market_warehouse` — the
@@ -116,6 +133,54 @@ briefing agent, and ad-hoc analysis can query history.
   test turns it red. Structured as one `(domain, cols)` pair per table
   (`SCHEMA_DOMAINS` in `tests/test_payload.py`) so each new table (increments 2–3)
   extends it by one line.
+
+### 12. Warehouse population decoupled from the briefing; async ingester is sole writer
+- The briefing becomes a pure **reader** of daily aggregates. A dedicated
+  systemd-managed job is the **sole writer** (supersedes #4/#5's writer identity;
+  the single-writer discipline itself is unchanged — everyone else, composer
+  included, opens `read_only=True`).
+- **Why:** the composer wrote a rolling-24h window ending at briefing time
+  (~06:00 HST / 16:00 UTC) — a mid-session, HST-keyed, display-reverse-parsed
+  scrape. Wrong timing (not a close), wrong basis (HST vs on-chain UTC), wrong
+  fidelity (strings, not node numbers), and **impossible to backfill**. Analytics
+  (SMA, regime thresholds, apathy streaks) need consistent UTC daily-close bars
+  with deep history.
+- **UTC calendar-day bucketing.** Row dated `D` aggregates blocks with header
+  timestamp in `[D 00:00 UTC, D+1 00:00 UTC)`. Only **complete** days are
+  written; at briefing time the newest complete UTC day is ~16h old — expected.
+- **One aggregation definition, three callers.** `aggregate_day(date, rpc)` is
+  the single implementation; backfill, the daily job, and gap-fill all call it.
+  No second day-aggregation anywhere. It is pure and node-RPC-injectable, hence
+  unit-testable on the Mac without a node (`test_aggregate.py`).
+- **Block timestamps are UTC and non-monotonic near boundaries** (consensus
+  allows ~2h forward drift, bounded by median-time-past). Day ranges are resolved
+  by *actual* timestamp with a `BOUNDARY_MARGIN` scan, never by assuming the first
+  block past a boundary is the boundary.
+
+### 13. Schema v2 — stored raw daily facts; derived series are query-time SQL
+- Renames: `blocks_24h` → `blocks_day` (a calendar-day count, not a rolling
+  window); `btc.price` → `btc.close`.
+- **Dropped `hash_rate_7d`, `tx_rate_7d`.** They are pure functions of the stored
+  series (value at t vs t−7d); storing them denormalizes and risks silent
+  inconsistency on any re-backfill/correction. Computed in `query.py` as a
+  **7-day DATE-RANGE** window (`<= date − 7d`), never positional `LAG` — `LAG`
+  silently spans >7 calendar days across a gap and mislabels itself as "7d".
+- **`retarget_proj` — the "both" decision.** The **cumulative** projection (pace
+  over the current difficulty period, up to 2016 blocks, not day-aligned) is
+  **stored** — it is not recoverable from the other daily columns and it matches
+  the brief's display. The **day-pace** variant `(blocks_day/144−1)·100` is
+  **query-time** (`day_pace_retarget`) — more responsive (no period-average
+  dilution) and the **preferred** value for miner-stress signal thresholds.
+- `block_fullness` is now a DOUBLE (daily mean of `total_weight/4e6·100`), not the
+  old point-in-time integer.
+
+### 14. `btc.close` (stored) and the brief's live BTC spot (displayed) are two different numbers
+- The warehouse stores a **daily close** from an external OHLCV source (needs 200
+  prior closes before the first 200-day SMA). The briefing continues to display
+  **live spot** from its own collector — a display value, deliberately *not*
+  routed through the DB. Same asset, two numbers, two purposes: one is a
+  historical close bar for analytics, the other is "what is BTC right now." Do not
+  reconcile them.
 
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).

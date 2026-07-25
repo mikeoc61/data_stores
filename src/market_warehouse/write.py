@@ -12,20 +12,18 @@ DEFAULT_DB_PATH = pathlib.Path.home() / "data" / "market.duckdb"
 
 _ONCHAIN_COLS = (
     "hash_rate_ehs",
-    "hash_rate_7d",
     "difficulty_t",
-    "retarget_proj",
-    "fee_subsidy",
-    "blocks_24h",
+    "blocks_day",
     "block_fullness",
     "p50_fee",
     "miner_rev",
+    "fee_subsidy",
     "tx_rate",
-    "tx_rate_7d",
+    "retarget_proj",
 )
 
 _BTC_COLS = (
-    "price",
+    "close",
     "sma200",
     "sma200_pct",
 )

@@ -52,6 +52,55 @@ def moving_average(
         con.close()
 
 
+def _pct_change_7d(column: str, db_path: str | os.PathLike[str] | None) -> float | None:
+    con = _connect(db_path)
+    try:
+        row = con.execute(
+            f"""
+            WITH s AS (
+                SELECT date, {column} AS v FROM onchain WHERE {column} IS NOT NULL
+            ),
+            cur AS (SELECT date, v FROM s ORDER BY date DESC LIMIT 1)
+            SELECT
+                cur.v,
+                (SELECT v FROM s
+                 WHERE s.date <= cur.date - INTERVAL 7 DAY
+                 ORDER BY s.date DESC LIMIT 1)
+            FROM cur
+            """
+        ).fetchone()
+        if not row:
+            return None
+        now_v, prev_v = row
+        if now_v is None or prev_v is None or prev_v == 0:
+            return None
+        return (now_v - prev_v) / prev_v * 100
+    finally:
+        con.close()
+
+
+def hash_rate_7d(db_path: str | os.PathLike[str] | None = None) -> float | None:
+    return _pct_change_7d("hash_rate_ehs", db_path)
+
+
+def tx_rate_7d(db_path: str | os.PathLike[str] | None = None) -> float | None:
+    return _pct_change_7d("tx_rate", db_path)
+
+
+def day_pace_retarget(db_path: str | os.PathLike[str] | None = None) -> float | None:
+    con = _connect(db_path)
+    try:
+        row = con.execute(
+            "SELECT blocks_day FROM onchain "
+            "WHERE blocks_day IS NOT NULL ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        if not row or row[0] is None:
+            return None
+        return (row[0] / 144.0 - 1) * 100
+    finally:
+        con.close()
+
+
 def apathy_streak(
     fee_subsidy_max: float = 1.0,
     p50_max: float = 1.5,

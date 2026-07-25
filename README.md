@@ -1,9 +1,10 @@
 # data_stores
 
-DuckDB-backed time-series warehouse for the Morning Intel Brief. Holds the daily
-numeric series the briefing already parses (on-chain, price, and — in later
-increments — markets, credit, ETF flows, node health), so signals and analysis
-can query history instead of re-scraping.
+DuckDB-backed time-series warehouse for the Morning Intel Brief. Holds daily
+UTC-close series (on-chain from the node, price from an OHLCV source, and — in
+later increments — markets, credit, ETF flows), populated by a dedicated
+ingester so signals and analysis can query deep history instead of re-scraping.
+The briefing reads it; it no longer writes it.
 
 Repo name is `data_stores` (umbrella for one or more datastore packages). The
 current package is `market_warehouse`.
@@ -11,26 +12,28 @@ current package is `market_warehouse`.
 ## Architecture
 
 ```
-briefing collectors (unchanged) ─► $TMPDIR/*.txt
-compose_briefing.py
-    ├─ parses every domain → numeric locals   (already happens)
-    ├─ renders + prints the brief             (unchanged)
-    └─ write_snapshot(date, payload)  ─────────► ~/data/market.duckdb
-                                                      ▲
-psignals.py / Kai / CLI / charts ── read_only ────────┘
+bitcoind ──► aggregate_day(UTC date)  ┐
+OHLCV source ──► daily close           ├─► write_snapshot ─► ~/data/market.duckdb
+     (systemd: daily @ 02:00 UTC        ┘                          ▲
+      + one-shot historical backfill)                              │ read_only
+compose_briefing.py / psignals.py / Kai / CLI / charts ────────────┘
 ```
 
-- **Single writer.** The composer is the sole writer, once per briefing, after
-  its parse step. Everything else opens the file `read_only=True`. This matches
-  DuckDB's single-writer-per-file constraint with no coordination.
-- **Composer owns the write point.** All domains are simultaneously in typed
-  form only inside `compose_briefing.py`. The persistence hook lives there — no
-  collector changes, no re-parsing of formatted text.
+- **Single writer.** A dedicated systemd-managed ingester is the sole writer:
+  a one-shot historical backfill (since 2016), then a daily job that appends the
+  latest complete UTC day. Everyone else — the briefing included — opens the file
+  `read_only=True`. Matches DuckDB's single-writer-per-file constraint with no
+  coordination. (Superseded the earlier composer-as-writer design; see DECISIONS
+  #12.)
+- **UTC calendar-day bucketing.** A row dated `D` aggregates blocks whose header
+  timestamp falls in `[D 00:00 UTC, D+1 00:00 UTC)`. Only complete days are
+  written. `aggregate_day` is the single day-aggregation definition, shared by
+  backfill, the daily job, and gap-fill.
 - **Fail-soft.** `write_snapshot` never raises; it returns `True`/`False`. The
-  brief is the load-bearing function — persistence is a side effect and must not
-  break delivery. Call it *after* the brief has been printed.
+  briefing reads fail-soft too — a missing/locked DB degrades one line, never the
+  section, never delivery.
 - **Idempotent.** Upsert keys on `date` (delete-by-date + insert in one
-  transaction), so `--force` reruns and debug invocations don't duplicate rows.
+  transaction), so reruns, gap-fill, and re-backfill don't duplicate rows.
 
 ## Data location
 
@@ -41,26 +44,31 @@ is never committed (`.gitignore` excludes `*.duckdb`).
 ## Seam
 
 ```python
-from market_warehouse import build_payload, write_snapshot   # writer (composer)
-from market_warehouse import latest, moving_average, apathy_streak  # readers
+from market_warehouse import aggregate_day, aggregate_range, write_snapshot  # ingester
+from market_warehouse import latest, moving_average, apathy_streak            # readers
+from market_warehouse import hash_rate_7d, tx_rate_7d, day_pace_retarget      # derivations
 ```
 
-`write_snapshot(date, payload)` where `payload` is
-`{"onchain": {...}, "btc": {...}}` — missing domains are skipped, missing metrics
-within a domain are written as NULL (a market-closed day with null equities is
-correct data, not missing data).
+`aggregate_day(date, rpc)` returns the `onchain` payload for one UTC day, computed
+from a node-RPC (injectable, so it is unit-testable without a node). `write_snapshot(date, payload)`
+where `payload` is `{"onchain": {...}, "btc": {...}}` — missing domains are
+skipped, missing metrics within a domain are written as NULL (NULL is valid data,
+not missing data).
 
-`build_payload(**locals)` is the pure helper the composer uses to construct that
-payload from its parsed locals — the single string→number coercion point,
-null-safe, keyword-only. It lives in the package (not inline in the composer) so
-it stays unit-testable against the real schema; see decision #11 in DECISIONS.md.
+The `*_7d` change figures and the day-pace retarget are **not stored** — they are
+query-time derivations of the daily series (`hash_rate_7d`, `tx_rate_7d`,
+`day_pace_retarget`), computed by DATE range so a gap can't mislabel a "7d"
+window. See DECISIONS #13.
 
-## Schema (v1)
+## Schema (v2)
 
-- `onchain(date PK, hash_rate_ehs, hash_rate_7d, difficulty_t, retarget_proj,
-  fee_subsidy, blocks_24h, block_fullness, p50_fee, miner_rev, tx_rate,
-  tx_rate_7d)`
-- `btc(date PK, price, sma200, sma200_pct)`
+- `onchain(date PK, hash_rate_ehs, difficulty_t, blocks_day, block_fullness,
+  p50_fee, miner_rev, fee_subsidy, tx_rate, retarget_proj)` — raw daily facts,
+  UTC-day bucketed. `retarget_proj` is the cumulative (period-pace) projection;
+  the day-pace variant is query-time.
+- `btc(date PK, close, sma200, sma200_pct)` — `close` is a daily close from an
+  external OHLCV source (distinct from the brief's live-spot display; DECISIONS
+  #14).
 - `schema_version(version, applied_at)`
 
 Scalar domains are wide (one named column per metric). Multi-entity domains added
@@ -76,9 +84,13 @@ pytest
 
 ## Roadmap
 
-1. `onchain` + `btc` tables, wired into the composer. **(done)**
-2. `markets` + `credit` + `node` (long-format for multi-entity). **(next)**
-3. `etf_flows` from the existing `farside_btc.json`.
-4. `psignals.py` reads read-only; apathy-duration and miner-stress flags as SQL.
-5. Backfill: on-chain via `getblockstats` over historical heights; price via an
-   OHLCV source. Markets/credit/flows accumulate forward-only.
+1. Schema v2 + `aggregate_day` + query helpers (Mac-tested). **(done)**
+2. Systemd daily writer + one-shot on-chain backfill since 2016 (`getblockstats`
+   over historical heights). **(in progress)**
+3. `btc.close` from an external OHLCV source (+ 200-day SMA). **(in progress)**
+4. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
+   split Live vs Day (UTC) render.
+5. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
+   `farside_btc.json`.
+6. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
+   SQL over the now-deep history.

@@ -1,5 +1,22 @@
 from .write import write_snapshot
-from .payload import build_payload
-from .query import latest, moving_average, apathy_streak
+from .aggregate import aggregate_day, aggregate_range
+from .query import (
+    latest,
+    moving_average,
+    apathy_streak,
+    hash_rate_7d,
+    tx_rate_7d,
+    day_pace_retarget,
+)
 
-__all__ = ["write_snapshot", "build_payload", "latest", "moving_average", "apathy_streak"]
+__all__ = [
+    "write_snapshot",
+    "aggregate_day",
+    "aggregate_range",
+    "latest",
+    "moving_average",
+    "apathy_streak",
+    "hash_rate_7d",
+    "tx_rate_7d",
+    "day_pace_retarget",
+]

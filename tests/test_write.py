@@ -6,6 +6,7 @@ import duckdb
 import pytest
 
 from market_warehouse import write_snapshot, latest, apathy_streak
+from market_warehouse.write import _ONCHAIN_COLS, _BTC_COLS
 
 
 @pytest.fixture
@@ -17,19 +18,35 @@ def _payload(fee_subsidy: float, p50: float) -> dict:
     return {
         "onchain": {
             "hash_rate_ehs": 877.84,
-            "hash_rate_7d": -3.62,
             "difficulty_t": 127.17,
-            "retarget_proj": -0.94,
-            "fee_subsidy": fee_subsidy,
-            "blocks_24h": 113,
-            "block_fullness": 98,
+            "blocks_day": 144,
+            "block_fullness": 97.3,
             "p50_fee": p50,
             "miner_rev": 355.8,
+            "fee_subsidy": fee_subsidy,
             "tx_rate": 7.65,
-            "tx_rate_7d": -3.31,
+            "retarget_proj": -0.94,
         },
-        "btc": {"price": 65853.0, "sma200": 72814.0, "sma200_pct": -9.6},
+        "btc": {"close": 65853.0, "sma200": 72814.0, "sma200_pct": -9.6},
     }
+
+
+def _table_columns(db: pathlib.Path, table: str) -> set[str]:
+    write_snapshot("2016-01-01", {}, db_path=db)
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        rows = con.execute(f"PRAGMA table_info('{table}')").fetchall()
+    finally:
+        con.close()
+    return {r[1] for r in rows if r[1] != "date"}
+
+
+@pytest.mark.parametrize(
+    "table, cols",
+    [("onchain", _ONCHAIN_COLS), ("btc", _BTC_COLS)],
+)
+def test_writer_cols_match_ddl(db, table, cols):
+    assert _table_columns(db, table) == set(cols)
 
 
 def test_write_creates_and_reads(db):
@@ -37,9 +54,9 @@ def test_write_creates_and_reads(db):
     row = latest("onchain", db_path=db)
     assert row is not None
     assert row["fee_subsidy"] == 0.75
-    assert row["blocks_24h"] == 113
+    assert row["blocks_day"] == 144
     btc = latest("btc", db_path=db)
-    assert btc["price"] == 65853.0
+    assert btc["close"] == 65853.0
 
 
 def test_upsert_is_idempotent(db):
@@ -62,8 +79,8 @@ def test_missing_metric_writes_null(db):
 
 
 def test_partial_payload_btc_only(db):
-    write_snapshot("2026-07-22", {"btc": {"price": 65853.0, "sma200": None, "sma200_pct": None}}, db_path=db)
-    assert latest("btc", db_path=db)["price"] == 65853.0
+    write_snapshot("2026-07-22", {"btc": {"close": 65853.0, "sma200": None, "sma200_pct": None}}, db_path=db)
+    assert latest("btc", db_path=db)["close"] == 65853.0
     assert latest("onchain", db_path=db) is None
 
 
