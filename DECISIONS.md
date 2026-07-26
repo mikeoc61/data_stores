@@ -95,44 +95,24 @@ briefing agent, and ad-hoc analysis can query history.
   historical source worth the reverse-parse). The domains where long history
   matters most for regime thresholds are exactly the ones that backfill cleanly.
 
-### 11. Payload construction (`build_payload`) lives in the package, not the composer
-- **REMOVED by #13 (2026-07-23).** `build_payload` existed to coerce the
-  composer's display strings into typed columns. Once the composer stopped
-  writing (#12), that job vanished; `aggregate_day` now produces the payload from
-  node RPC numbers directly. The drift-guard *principle* below survives — the
-  same static-key, bidirectional set-equality test now runs against
-  `aggregate_day` output and the DDL (`test_writer_cols_match_ddl`,
-  `test_aggregate_day_keys_match_schema`). Kept for the reasoning, which still
-  governs the replacement.
-- The mechanical string→number coercion (parsing the `hash_rate` display string
-  into `hash_rate_ehs` + `hash_rate_7d`, the string counters into int/float,
-  null-safety) is a pure function, `build_payload`, in `market_warehouse` — the
-  composer imports it alongside `write_snapshot`.
-- **Why not inline in `compose_briefing.py`:** that script isn't import-safe
-  (`TMP = pathlib.Path(sys.argv[1])` runs at module top, and the whole body
-  executes on import), so a function defined there can't be unit-tested from this
-  repo without refactoring the load-bearing script. Co-locating it with the
-  schema also keeps the payload↔column contract in one repo, tested against the
-  real tables via a `write_snapshot` round-trip.
-- **This does not weaken decision #4** ("all domains are typed there"). The
-  composer's `build_payload(...)` call site still declares every
-  domain→local mapping explicitly; the package function only does the generic
-  coercion. Typing ownership — *which* local feeds *which* column — stays in the
-  composer. `build_payload` is a keyword-only function so that mapping can't drift
-  positionally.
-- **Drift guard is test-only, and that is exhaustive — not a compromise.**
-  `build_payload`'s key set is statically determined (hardcoded literals, not
-  data-dependent): it emits the same keys on every call regardless of collector
-  output. So a commit-time test asserting bidirectional set-equality between the
-  payload keys and the writer's column tuples (`_ONCHAIN_COLS` / `_BTC_COLS`)
-  covers every reachable state; no runtime input can produce a key the test
-  didn't see. Do NOT add a runtime assert in `build_payload` — it would re-verify
-  at 5am what commit time already proved, on a path we deliberately keep boring.
-  The valuable direction is schema→builder: a column added to the schema but not
-  to `build_payload` is otherwise an invisible always-NULL failure; the equality
-  test turns it red. Structured as one `(domain, cols)` pair per table
-  (`SCHEMA_DOMAINS` in `tests/test_payload.py`) so each new table (increments 2–3)
-  extends it by one line.
+### 11. Schema-drift is guarded at test time, not runtime (was: `build_payload` placement)
+- **The function is gone; the guard is the part that mattered.** `build_payload`
+  coerced the composer's display strings into typed columns. That job vanished
+  when the composer stopped writing (#12) and `aggregate_day` began producing
+  payloads from node RPC numbers directly. Its *placement* argument — put it in
+  the package because the briefing repo had no tests — was later reversed by #16
+  once that repo gained test infrastructure.
+- **The surviving principle: guard payload↔schema drift with a commit-time test,
+  never a runtime assert.** A producer's key set is statically determined
+  (hardcoded literals, not data-dependent), so a bidirectional set-equality test
+  against the writer's column tuples covers every reachable state — no runtime
+  input can produce a key the test didn't see. A runtime assert would re-verify at
+  02:00 UTC what commit time already proved, on a path deliberately kept boring.
+- **The valuable direction is schema→producer:** a column added to the schema but
+  not to the producer is otherwise an invisible always-NULL failure. Now enforced
+  by `test_writer_cols_match_ddl` (introspects the real DDL) and
+  `test_aggregate_day_keys_match_schema`. Extend by one `(domain, cols)` pair per
+  new table.
 
 ### 12. Warehouse population decoupled from the briefing; async ingester is sole writer
 - The briefing becomes a pure **reader** of daily aggregates. A dedicated
@@ -157,7 +137,7 @@ briefing agent, and ad-hoc analysis can query history.
   by *actual* timestamp with a `BOUNDARY_MARGIN` scan, never by assuming the first
   block past a boundary is the boundary.
 
-### 13. Schema v2 — stored raw daily facts; derived series are query-time SQL
+### 13. Schema (v2, now v3) — stored raw daily facts; derived series are query-time SQL
 - Renames: `blocks_24h` → `blocks_day` (a calendar-day count, not a rolling
   window); `btc.price` → `btc.close`.
 - **Dropped `hash_rate_7d`, `tx_rate_7d`.** They are pure functions of the stored
@@ -239,6 +219,80 @@ briefing agent, and ad-hoc analysis can query history.
   the retarget branches, and the CLI. Run with any env that has pytest + duckdb +
   `market_warehouse`. New `scripts/` helpers should be import-safe and land tests
   here rather than being pushed into the warehouse package.
+
+## Signals
+
+Empirical findings about the data itself, established by backtesting the query
+helpers against the backfilled history (2016→present) on the Pi. These were
+expensive to learn; do not re-derive them from scratch.
+
+### 17. `fee_subsidy` has strong weekly seasonality — any daily threshold must account for it
+- Measured over a 730-day window: weekends run **27% lower** than weekdays on
+  both mean (1.077 vs 1.468) and median (0.740 vs 1.013) — a genuine level shift,
+  not skew. Full weekly cycle, Sunday lowest, Thursday highest.
+- Consequence: **73% of the bottom decile falls on Sat/Sun** against a 28.6%
+  baseline — a 2.5× over-representation. A raw daily percentile therefore reports
+  substantially *what day of the week it is*. A day that IS exactly the average
+  Saturday ranks at the **14th** percentile raw and the **50th** once corrected.
+- Two corrections exist in `percentile_rank`, both cancelling the cycle exactly
+  because a week contains one of each weekday: `smooth_days=7` (trailing mean;
+  steadier, but a low-pass filter that blurs single-day moves) and
+  `detrend_dow=True` (residual vs that weekday's own mean; keeps daily
+  resolution). The brief's Signal line uses `smooth_days=7`.
+- The **absolute** `apathy_streak` threshold (1.0%) is currently safe only because
+  fees sit far below the 2-year median. At the median, weekday medians straddle
+  1.0% (Thu 1.023, Fri 1.061) while weekends do not — the streak would break every
+  Thursday and cap near **5 days**, becoming a weekend detector. Danger zone is
+  roughly 0.9–1.2% average fee/subsidy; if the streak starts oscillating 0–5,
+  raise the threshold rather than distrusting the number.
+- The brief's `Day (UTC … Sat)` line names the weekday for the same reason: it is
+  deliberately one day's raw facts, and 2 of 7 briefs (Sun/Mon HST) report a
+  weekend UTC day.
+
+### 18. Relative and absolute thresholds answer different questions — keep both
+- A percentile threshold is drawn from the same window it measures, so by
+  construction only `percentile`% of days can ever fall below it *however
+  depressed the regime*. It detects a **new leg down**; it cannot express the
+  **duration** of a sustained one. Observed: `apathy_streak_pct` = 1 while the
+  absolute `apathy_streak` = 19 on the same data, both correct.
+- So `apathy_streak_pct` is a **complement** to `apathy_streak`, never a
+  successor. The brief shows the absolute one, because regime duration is what a
+  long-horizon reader wants.
+- Corollary, and a trap worth naming: converting every measure to a relative one
+  makes them agree — that is tautology, not validation.
+- `percentile_rank` must return `float`. DuckDB's `100.0 * count(*)` yields
+  DECIMAL, so an uncast result raises `TypeError` on any float arithmetic while
+  silently working inside `round()`.
+
+### 19. "Washout" is not one phenomenon — hashrate drawdown is the reliable detector
+- Backtested as-of three historical washouts (`tools/backtest_signals.py` copies
+  rows up to a cut-off into a temp DB, since the helpers anchor to `max(date)`):
+
+  | as-of | fee% | fee pctile | hashrate vs 90d high |
+  |---|---|---|---|
+  | 2018-12-15 bear bottom | 0.99 | **7.3** | **−33.2** |
+  | 2021-07-02 China ban | 11.02 | 75.9 | **−50.2** |
+  | 2022-11-21 post-FTX | 3.15 | 66.8 | −3.8 |
+  | 2017-12-17 blowoff top | 23.15 | 94.3 | 0.0 |
+  | 2021-04-14 ATH | 16.14 | 92.9 | −3.0 |
+  | 2021-11-09 ATH | 2.45 | 37.7 | −1.9 |
+
+- **A fee-apathy gauge catches only demand apathy** (2018). The China ban was a
+  *supply* shock: hashrate fell 50%, blocks slowed to ~15–20 min, the mempool
+  backed up and fees **spiked** to the 76th percentile — the signal inverts. FTX
+  was a price/credit event with unremarkable on-chain fees (self-custody
+  withdrawals arguably raised them). Do not expect `fee_subsidy` to mark price
+  bottoms; it measures blockspace demand.
+- **`drawdown_from_high("hash_rate_ehs", 90)` separates cleanly** with no overlap:
+  −33%/−50% at miner-stress washouts vs 0%/−3% in euphoria. It is the strongest
+  single regime discriminator found, and it is immune to the #17 weekly cycle
+  (`getnetworkhashps` uses a 1008-block ≈ 1-week window; mining has no weekend).
+- Euphoria never produces a false apathy signal (streak 0 in all three cases),
+  though the percentile is only mid-range at the 2021-11 ATH — by then fees had
+  cooled to 2.45% against a window still holding the 2021-04 fee mania. High
+  percentile is sufficient evidence of euphoria, not necessary. The
+  false-positive risk is low; the real risk is the **false negative** — missing a
+  supply-side washout with a demand-side gauge.
 
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).
