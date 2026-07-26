@@ -24,6 +24,8 @@ from market_warehouse import apathy_streak_pct, drawdown_from_high, percentile_r
 from market_warehouse.write import _db_path
 
 REGIMES: list[tuple[str, str, str]] = [
+    ("euphoria", "2013-12-04", "first bubble peak ~$1.1k (btc-only: pre-onchain)"),
+    ("washout", "2015-01-14", "post-Mt.Gox bottom ~$170 (btc-only: pre-onchain)"),
     ("washout", "2018-12-15", "2018 bear bottom (BTC ~$3.2k)"),
     ("washout", "2021-07-02", "China ban trough (day before the -28% adjustment)"),
     ("washout", "2022-11-09", "FTX collapse day (VOLUME event)"),
@@ -47,6 +49,7 @@ def _as_of_db(real: pathlib.Path, cutoff: str, tmpdir: pathlib.Path) -> pathlib.
             con.execute(
                 f"CREATE TABLE btc AS SELECT * FROM src.btc WHERE date <= DATE '{cutoff}'"
             )
+            n += con.execute("SELECT count(*) FROM btc").fetchone()[0]
         except Exception:
             pass
         con.execute("DETACH src")
@@ -84,9 +87,18 @@ def main(argv: list[str] | None = None) -> int:
     lo, hi, total = con.execute(
         "SELECT min(date), max(date), count(*) FROM onchain"
     ).fetchone()
+    try:
+        blo, bhi, btotal = con.execute(
+            "SELECT min(date), max(date), count(*) FROM btc"
+        ).fetchone()
+    except Exception:
+        blo = bhi = btotal = None
     con.close()
     print(f"warehouse: {real}")
-    print(f"coverage : {lo} .. {hi}  ({total} rows)\n")
+    print(f"onchain  : {lo} .. {hi}  ({total} rows)")
+    if btotal:
+        print(f"btc      : {blo} .. {bhi}  ({btotal} rows)")
+    print()
 
     rows = REGIMES + [("current", str(hi), "latest complete day")]
     hdr = (
@@ -99,9 +111,6 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as td:
         tmpdir = pathlib.Path(td)
         for regime, cutoff, note in rows:
-            if datetime.date.fromisoformat(cutoff) < lo:
-                print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8} {'—':>8}  before coverage")
-                continue
             asof = _as_of_db(real, cutoff, tmpdir)
             if asof is None:
                 print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8} {'—':>8}  no rows")
@@ -130,7 +139,9 @@ def main(argv: list[str] | None = None) -> int:
         "\nexpect: washout rows at a LOW fee pctile with apathy/hashrate drawdown\n"
         "        present; euphoria rows at a HIGH fee pctile with apathy 0.\n"
         "        vol%ile tests whether volume catches the price/credit washouts\n"
-        "        (2022-11 FTX) that the on-chain fee gauge structurally cannot."
+        "        (2022-11 FTX) that the on-chain fee gauge structurally cannot.\n"
+        "        Rows before the on-chain start show — for on-chain columns and\n"
+        "        are evaluated on btc alone; each signal is gated on its own table."
     )
     return 0
 
