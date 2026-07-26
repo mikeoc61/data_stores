@@ -6,62 +6,37 @@ re-scraping. Full rationale in DECISIONS.md (read it first); design + seam +
 schema in README.md.
 
 ## Current state
-Decoupling the warehouse from the briefing per `BACKFILL_REFACTOR_SPEC.md`. The
-composer is now report-only; a dedicated systemd ingester becomes the sole
-writer, UTC-day bucketed, backfillable to 2016.
-- **Done (Mac-tested, 27 passing):** composer no longer writes; **schema v2**
-  (`schema.py`, `write.py` col tuples) — renamed `blocks_24h`→`blocks_day`,
-  `price`→`close`; dropped `hash_rate_7d`/`tx_rate_7d` (now query-time);
-  `build_payload` removed. **`aggregate.py`** — `aggregate_day(date, rpc)` with an
-  injectable `NodeRPC` (unit-tested via a fake chain) + `BitcoinCliRPC` for the
-  Pi. **Query helpers** — `hash_rate_7d`/`tx_rate_7d` (7d DATE-range) +
-  `day_pace_retarget`. **Step 3 daily writer** — `daily_update.py` (sole writer,
-  gap-filling, UTC-complete-day logic, fail-soft per day; `main()` inject-tested)
-  + `deploy/` systemd .service/.timer (02:00 UTC, `Persistent=true`, idle sched) +
-  `market-warehouse-daily` console script. On-chain only — btc is blocked on
-  step 4. Decisions #12–#14 recorded; #4/#5/#11 annotated as superseded.
-- **Step 6 backfill done (Mac-tested):** `backfill.py` — one-shot, resumable
-  (checkpoint = warehouse `max(date)`), per-day fail-soft, batched via
-  `write_snapshots` (chunked commit, reuses the upsert contract). Default start
-  2016-01-01; `market-warehouse-backfill` console script + `-m` runnable.
-  `deploy/README.md` has the full Pi run procedure (rebuild v1→v2, 10-day
-  checkpoint, overnight `nice`/`ionice` run, gap re-runs).
-- **Pi env confirmed (2026-07-25):** unpruned + fully synced full node, Python
-  3.11.2, DuckDB 1.5.5, new API imports under minimal env — full backfill is a go.
-- **Schema v3 (2026-07-25):** `btc` trimmed to `(date, close)`;
-  `sma200`/`sma200_pct` are now `query.py` helpers (corrects spec Step 1/7 for
-  #13 consistency — both writers store raw facts, nothing derived).
-- **On-chain LIVE on the Pi (2026-07-25):** backfilled 2016→tip (3858 days, 0
-  skipped; near-tip row validated incl. post-2024-halving 3.125 subsidy closure);
-  daily timer enabled + a manual `systemctl start` proved the unit end-to-end.
-- **Step 4 btc.close done (Mac-tested, 55 passing):** `price.py` — `PriceSource`
-  protocol + `KrakenCsvSource` (deep history) + `KrakenApiSource` (REST, ~720d
-  edge); parsers unit-tested with fixtures. `btc_backfill.py` one-shot
-  (`market-warehouse-btc-backfill --csv`) + btc folded into `daily_update` (one
-  writer, on-chain then btc, fail-soft). Decision #15. NOTE: existing warehouse's
-  empty `btc` table won't auto-migrate — run `DROP TABLE btc;` once before the btc
-  backfill (empty; no data loss).
-- **btc LIVE on the Pi (2026-07-25):** CSV backfill (3852 closes 2015→2025-12-31)
-  + a manual daily run filled the REST edge to 07-24. Warehouse `sma200` ($72,408)
-  matched the brief's independent `btc_sma.sh` SMA (~$72,669) to ~0.4% — strong
-  cross-check. Fixed `_max_date` to tolerate a missing table (post-`DROP TABLE`).
-- **Step 5 compose_briefing done (Mac-validated render):** guarded read-only
-  `latest("onchain")`; BITCOIN section splits `Live:` (snapshot: price/hash/diff +
-  retarget/tx) from a dated `Day (UTC <date>):` line (warehouse block economics,
-  ~144 blks vs old rolling ~118); staleness warns >2d; fail-soft fallback to the
-  snapshot-only render. Render logic validated on the Mac against a real row;
-  pending a real brief run on the Pi. **Whole spec now implemented.**
-- Validated on Python 3.14 (Mac) / 3.11.2 (Pi) / DuckDB 1.5.5.
+Fully live on the Pi. The briefing no longer writes; a systemd ingester is the
+sole writer, UTC-day bucketed, and the brief reads it back read-only.
+
+- **Warehouse (schema v4):** `onchain` 2016→tip (~3.9k rows, `getblockstats`),
+  `btc` 2013-10→tip (~4.7k rows, Kraken bulk CSV + REST edge, with volume).
+  Ingest: `daily_update` on a 02:00 UTC timer (gap-filling, fail-soft per day);
+  one-shot `backfill` / `btc_backfill` for history.
+- **Signal layer:** `percentile_rank` (with `smooth_days` / `detrend_dow`),
+  `drawdown_from_high`, `apathy_streak`, `apathy_streak_pct`, `sma200`,
+  `hash_rate_7d` / `tx_rate_7d`, `day_pace_retarget`. Backtested against four
+  historical regimes via `tools/backtest_signals.py`.
+- **Briefing integration:** `scripts/warehouse_view.py` (in the briefing repo)
+  renders the `Day (UTC … Sat)` and `Signal:` lines AND injects the same facts
+  into the LLM analyst's context, so the Take reasons from a 2-year distribution
+  instead of hardcoded thresholds. Standalone-runnable for debugging.
+- **Tests:** 93 here, 40 in the briefing repo (`conftest.py` puts `scripts/` on
+  `sys.path`; run with an env that has pytest + duckdb + `market_warehouse`).
+- **Runtime:** Python 3.14 (Mac) / 3.11.2 (Pi) / DuckDB 1.5.5. Pi node is
+  unpruned and fully synced.
+
+Read `DECISIONS.md` for the *why* — especially #17–#19 (signal semantics: weekly
+seasonality, relative vs absolute thresholds, and that each washout type needs a
+different detector). `README.md` has the schema and seam; `deploy/README.md` has
+the Pi procedures and CSV provenance. `BACKFILL_REFACTOR_SPEC.md` is the
+completed spec, kept for history.
 
 ## Next increment
-Spec complete. Next is increment 1 below (multi-entity tables), once the Step 5
-brief render is confirmed on the Pi.
-
-## Subsequent increments
-1. `markets` + `credit` + `node` tables — long-format (`date, entity, ...`);
-   `etf_flows` from `~/.openclaw/cache/farside_btc.json`.
-2. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
-   SQL over the now-deep history.
+`markets` + `credit` + `node` as long-format (`date, entity, ...`) tables — the
+first real use of the multi-entity shape from #3 — plus `etf_flows` from
+`~/.openclaw/cache/farside_btc.json`, which the brief currently reads as a raw
+line. Then point `psignals.py` at the DB read-only.
 
 ## Hard constraints
 - Persistence MUST never break briefing delivery (the load-bearing function).
@@ -70,9 +45,13 @@ brief render is confirmed on the Pi.
   #12.)
 - One day-aggregation definition (`aggregate_day`), shared by daily + backfill +
   gap-fill. No second implementation.
-- No stored derived columns: `*_7d`, day-pace retarget, and `btc` SMA
-  (`sma200`/`sma200_pct`) are SQL query helpers; cumulative `retarget_proj` IS
-  stored. `btc` is `(date, close)` only — same raw-facts shape as `onchain`.
+- No stored derived columns: `*_7d`, day-pace retarget, percentiles and the `btc`
+  SMA (`sma200`/`sma200_pct`) are SQL query helpers. Cumulative `retarget_proj` IS
+  stored (not recoverable from the daily columns). `btc` holds raw daily bars
+  (`close`, `kraken_vol`, `kraken_trades`) — same raw-facts shape as `onchain`.
+- Any daily threshold or percentile on `fee_subsidy` or `kraken_vol` MUST account
+  for weekly seasonality (~27% weekend dip) via `smooth_days` or `detrend_dow` —
+  otherwise it substantially reports the day of the week. DECISIONS #17.
 - UTC calendar-day bucketing everywhere; block timestamps are non-monotonic near
   boundaries — resolve ranges by actual timestamp with margin.
 - Do NOT refactor collectors to emit JSON. Do NOT re-parse formatted display
