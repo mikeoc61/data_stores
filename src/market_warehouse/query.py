@@ -133,26 +133,33 @@ def day_pace_retarget(db_path: str | os.PathLike[str] | None = None) -> float | 
 
 def apathy_streak(
     fee_subsidy_max: float = 1.0,
-    p50_max: float = 1.5,
     db_path: str | os.PathLike[str] | None = None,
 ) -> int:
+    """Consecutive days (from latest backward) with fee_subsidy below an ABSOLUTE
+    threshold — the regime-duration signal. Unlike the percentile variants it can
+    express "we have been in the basement for N days", because its threshold does
+    not recalibrate to the window it measures (see apathy_streak_pct).
+
+    A second gate `p50_max=1.5` was removed (2026-07-26). It was not an
+    independent guard: at high block fullness p50_fee and fee_subsidy are
+    near-mechanically linked (a full block is ~1e6 vB against a 3.125e8 sat
+    subsidy, so fee_subsidy ~ p50 * 0.3-0.7%). `p50 <= 1.5` therefore implied
+    fee_subsidy < ~0.7%, STRICTER than the 1.0% this function documents — and
+    because getblockstats returns integer sat/vB, at current fee levels p50 is
+    quantized to {0,1,2}, so the coarser measurement silently controlled a signal
+    named for the finer one. Observed 2026-07-15: fee_subsidy 0.8392% (passes)
+    broken by p50 2.00. p50_fee remains valuable as a displayed number.
+    """
     con = _connect(db_path)
     try:
         rows = con.execute(
-            """
-            SELECT fee_subsidy, p50_fee
-            FROM onchain
-            ORDER BY date DESC
-            """
+            "SELECT fee_subsidy FROM onchain ORDER BY date DESC"
         ).fetchall()
         streak = 0
-        for fee_subsidy, p50 in rows:
-            if fee_subsidy is None or p50 is None:
+        for (fee_subsidy,) in rows:
+            if fee_subsidy is None or fee_subsidy >= fee_subsidy_max:
                 break
-            if fee_subsidy < fee_subsidy_max and p50 <= p50_max:
-                streak += 1
-            else:
-                break
+            streak += 1
         return streak
     finally:
         con.close()

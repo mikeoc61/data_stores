@@ -120,3 +120,20 @@ def test_apathy_streak_breaks_on_demand_return(db):
     write_snapshot("2026-07-21", _payload(3.20, 4.0), db_path=db)
     write_snapshot("2026-07-22", _payload(0.75, 1.0), db_path=db)
     assert apathy_streak(db_path=db) == 1
+
+
+def test_apathy_streak_ignores_p50_quantization(db):
+    # p50_fee is integer-quantized by getblockstats, so at low fee levels a
+    # 1 -> 2 sat/vB tick (the smallest possible move) used to truncate the
+    # streak even while fee_subsidy stayed well under the 1.0% threshold.
+    write_snapshot("2026-07-20", _payload(0.53, 1.0), db_path=db)
+    write_snapshot("2026-07-21", _payload(0.84, 2.0), db_path=db)
+    write_snapshot("2026-07-22", _payload(0.66, 1.0), db_path=db)
+    assert apathy_streak(db_path=db) == 3
+
+
+def test_apathy_streak_still_breaks_on_fee_subsidy(db):
+    write_snapshot("2026-07-20", _payload(0.53, 1.0), db_path=db)
+    write_snapshot("2026-07-21", _payload(1.00, 1.0), db_path=db)
+    write_snapshot("2026-07-22", _payload(0.66, 1.0), db_path=db)
+    assert apathy_streak(db_path=db) == 1
