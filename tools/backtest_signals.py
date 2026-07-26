@@ -26,7 +26,8 @@ from market_warehouse.write import _db_path
 REGIMES: list[tuple[str, str, str]] = [
     ("washout", "2018-12-15", "2018 bear bottom (BTC ~$3.2k)"),
     ("washout", "2021-07-02", "China ban trough (day before the -28% adjustment)"),
-    ("washout", "2022-11-21", "post-FTX capitulation low"),
+    ("washout", "2022-11-09", "FTX collapse day (VOLUME event)"),
+    ("washout", "2022-11-21", "post-FTX capitulation low (PRICE event, 12d later)"),
     ("euphoria", "2017-12-17", "2017 blowoff top (fee mania)"),
     ("euphoria", "2021-04-14", "BTC ATH ~$64k / Coinbase IPO"),
     ("euphoria", "2021-11-09", "BTC ATH ~$69k"),
@@ -42,6 +43,12 @@ def _as_of_db(real: pathlib.Path, cutoff: str, tmpdir: pathlib.Path) -> pathlib.
             f"CREATE TABLE onchain AS SELECT * FROM src.onchain WHERE date <= DATE '{cutoff}'"
         )
         n = con.execute("SELECT count(*) FROM onchain").fetchone()[0]
+        try:
+            con.execute(
+                f"CREATE TABLE btc AS SELECT * FROM src.btc WHERE date <= DATE '{cutoff}'"
+            )
+        except Exception:
+            pass
         con.execute("DETACH src")
     finally:
         con.close()
@@ -82,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"coverage : {lo} .. {hi}  ({total} rows)\n")
 
     rows = REGIMES + [("current", str(hi), "latest complete day")]
-    hdr = f"{'regime':9} {'as-of':11} {'fee%':>6} {'pctile':>7} {'apathy':>7} {'hr_dd':>8}  note"
+    hdr = (
+        f"{'regime':9} {'as-of':11} {'fee%':>6} {'pctile':>7} {'apathy':>7} "
+        f"{'hr_dd':>8} {'vol%ile':>8}  note"
+    )
     print(hdr)
     print("-" * len(hdr))
 
@@ -90,24 +100,37 @@ def main(argv: list[str] | None = None) -> int:
         tmpdir = pathlib.Path(td)
         for regime, cutoff, note in rows:
             if datetime.date.fromisoformat(cutoff) < lo:
-                print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8}  before coverage")
+                print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8} {'—':>8}  before coverage")
                 continue
             asof = _as_of_db(real, cutoff, tmpdir)
             if asof is None:
-                print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8}  no rows")
+                print(f"{regime:9} {cutoff:11} {'—':>6} {'—':>7} {'—':>7} {'—':>8} {'—':>8}  no rows")
                 continue
             _, fee, _hr = _raw(asof)
             pct = percentile_rank("fee_subsidy", window_days=730, db_path=asof)
             streak = apathy_streak_pct(percentile=10, window_days=730, db_path=asof)
             dd = drawdown_from_high("hash_rate_ehs", window_days=90, db_path=asof)
+            # detrend_dow, not smooth_days: volume carries the same weekly cycle
+            # as fee_subsidy (FTX week: Sat/Sun ~1/8th of the weekday spike), but
+            # a volume event lasts 3-4 days, which a 7-day mean dilutes away.
+            # Detrending removes the cycle while keeping daily resolution.
+            try:
+                vol = percentile_rank(
+                    "kraken_vol", window_days=730, table="btc",
+                    detrend_dow=True, db_path=asof,
+                )
+            except Exception:
+                vol = None
             print(
                 f"{regime:9} {cutoff:11} {_fmt(fee, '.2f'):>6} {_fmt(pct, '.1f'):>7} "
-                f"{_fmt(streak, 'd'):>7} {_fmt(dd, '.1f'):>8}  {note}"
+                f"{_fmt(streak, 'd'):>7} {_fmt(dd, '.1f'):>8} {_fmt(vol, '.1f'):>8}  {note}"
             )
 
     print(
-        "\nexpect: washout rows at a LOW pctile (single digits) with apathy/hashrate\n"
-        "        drawdown present; euphoria rows at a HIGH pctile with apathy 0."
+        "\nexpect: washout rows at a LOW fee pctile with apathy/hashrate drawdown\n"
+        "        present; euphoria rows at a HIGH fee pctile with apathy 0.\n"
+        "        vol%ile tests whether volume catches the price/credit washouts\n"
+        "        (2022-11 FTX) that the on-chain fee gauge structurally cannot."
     )
     return 0
 
