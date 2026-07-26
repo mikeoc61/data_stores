@@ -166,6 +166,7 @@ def percentile_rank(
     window_days: int = 730,
     table: str = "onchain",
     smooth_days: int = 1,
+    detrend_dow: bool = False,
     db_path: str | os.PathLike[str] | None = None,
 ) -> float | None:
     """Percentile (0-100) of the latest value within its trailing window.
@@ -179,12 +180,29 @@ def percentile_rank(
     which puts 73% of its bottom decile on Sat/Sun against a 29% baseline — so
     the raw daily percentile substantially reports the day of the week. A 7-day
     mean spans exactly one of each weekday, cancelling that exactly.
+
+    `detrend_dow` is the alternative treatment: rank the residual
+    (value - the window's mean for that same ISO weekday) instead of the level.
+    It removes the same seasonality but keeps DAILY resolution, where smoothing
+    is a low-pass filter that blurs single-day moves. Takes precedence over
+    `smooth_days`. Note it answers a RELATIVE question ("low for a Tuesday?"),
+    so like any self-referencing measure it cannot describe a sustained regime.
     """
     con = _connect(db_path)
-    try:
-        row = con.execute(
-            f"""
-            WITH s AS (
+    if detrend_dow:
+        series = f"""
+            base AS (
+                SELECT date, {column} AS v, isodow(date) AS dw
+                FROM {table}
+                WHERE {column} IS NOT NULL
+                  AND date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
+            ),
+            dm AS (SELECT dw, avg(v) AS m FROM base GROUP BY dw),
+            w AS (SELECT b.date, b.v - dm.m AS v FROM base b JOIN dm ON b.dw = dm.dw)
+        """
+    else:
+        series = f"""
+            s AS (
                 SELECT date,
                        avg({column}) OVER (
                            ORDER BY date
@@ -194,11 +212,16 @@ def percentile_rank(
                 FROM {table}
                 WHERE {column} IS NOT NULL
             ),
-            latest AS (SELECT v FROM s ORDER BY date DESC LIMIT 1),
             w AS (
-                SELECT v FROM s
+                SELECT date, v FROM s
                 WHERE date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
             )
+        """
+    try:
+        row = con.execute(
+            f"""
+            WITH {series},
+            latest AS (SELECT v FROM w ORDER BY date DESC LIMIT 1)
             SELECT
                 (SELECT count(*) FROM w),
                 (SELECT 100.0 * count(*) FROM w, latest WHERE w.v < latest.v)

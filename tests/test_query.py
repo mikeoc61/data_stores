@@ -192,6 +192,20 @@ def _weekly_seasonal(days: int = 400, start: str = "2024-01-01") -> list[dict]:
     return out
 
 
+def _weekly_seasonal_noisy(days: int = 405, start: str = "2024-01-01") -> list[dict]:
+    """Weekend dip plus deterministic day-to-day noise (real series are never
+    perfectly periodic; a noiseless one detrends to all-zero residuals)."""
+    import math
+
+    base = datetime.date.fromisoformat(start)
+    out = []
+    for i in range(days):
+        d = base + datetime.timedelta(days=i)
+        level = 0.73 if d.weekday() >= 5 else 1.00
+        out.append({"fee_subsidy": round(level * (1 + 0.15 * math.sin(i * 2.399)), 5)})
+    return out
+
+
 def test_percentile_rank_raw_is_confounded_by_weekend_seasonality(db):
     # Series ends on a Saturday; the raw daily percentile reports the calendar.
     vals = _weekly_seasonal(days=405, start="2024-01-01")
@@ -228,3 +242,49 @@ def test_percentile_rank_smooth_days_one_matches_unsmoothed(db):
     assert percentile_rank("fee_subsidy", db_path=db) == percentile_rank(
         "fee_subsidy", smooth_days=1, db_path=db
     )
+
+
+def _seasonal_typical_saturday(days: int = 405) -> list[dict]:
+    """Noisy weekend-dip series whose final day is a PERFECTLY TYPICAL Saturday
+    (exactly the mean of prior Saturdays), so its calendar-honest rank is ~50."""
+    import math
+
+    base = datetime.date(2024, 1, 1)
+    vals = []
+    for i in range(days):
+        d = base + datetime.timedelta(days=i)
+        level = 0.73 if d.weekday() >= 5 else 1.00
+        vals.append(round(level * (1 + 0.15 * math.sin(i * 2.399)), 5))
+    sats = [
+        v for i, v in enumerate(vals[:-1])
+        if (base + datetime.timedelta(days=i)).weekday() == 5
+    ]
+    vals[-1] = round(sum(sats) / len(sats), 5)
+    return [{"fee_subsidy": v} for v in vals]
+
+
+def test_detrend_dow_makes_a_typical_saturday_read_as_typical(db):
+    # The core property: a day that IS the average Saturday looks like a bottom-
+    # decile event on the raw series purely because it is a Saturday. Detrending
+    # against that weekday's own mean puts it back in the middle where it belongs.
+    _seed_onchain(db, _seasonal_typical_saturday(), start="2024-01-01")
+    raw = percentile_rank("fee_subsidy", window_days=730, db_path=db)
+    detrended = percentile_rank(
+        "fee_subsidy", window_days=730, detrend_dow=True, db_path=db
+    )
+    assert raw < 20.0
+    assert 40.0 < detrended < 60.0
+
+
+def test_detrend_dow_still_detects_a_real_collapse(db):
+    vals = _weekly_seasonal_noisy(days=380)
+    vals += [{"fee_subsidy": 0.10} for _ in range(20)]
+    _seed_onchain(db, vals, start="2024-01-01")
+    assert percentile_rank("fee_subsidy", detrend_dow=True, db_path=db) < 10.0
+
+
+def test_detrend_dow_takes_precedence_over_smooth_days(db):
+    _seed_onchain(db, _weekly_seasonal_noisy(days=405), start="2024-01-01")
+    a = percentile_rank("fee_subsidy", detrend_dow=True, db_path=db)
+    b = percentile_rank("fee_subsidy", detrend_dow=True, smooth_days=7, db_path=db)
+    assert a == b
