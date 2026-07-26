@@ -212,6 +212,27 @@ briefing agent, and ad-hoc analysis can query history.
   price edge self-heals via gap-fill). The one-shot `btc_backfill` is a separate
   operator-run entrypoint, like the on-chain backfill.
 
+### 16. The brief's warehouse read + formatting lives in `view.py`, not the composer
+- `market_warehouse/view.py` — `onchain_day_view()` returns an `OnchainDayView`
+  (`day_line`, `stale_line`, `day_pace`, `retarget_fragment()`), presentation-ready.
+  The composer's DB code drops from ~35 lines to ~6: call it, render the strings.
+- **Why in the package, not the briefing repo** — the same reasoning as #11:
+  `compose_briefing.py` is not import-safe (`sys.argv[1]` at module top), and the
+  briefing repo has **no test infrastructure** (no pytest, rsync-deployed
+  appliance). Code placed there is untestable in practice. In the package it is
+  covered by the existing suite (`tests/test_view.py`), and the column→display
+  contract sits next to the schema that defines it.
+- **It also removes duplicated domain constants.** The composer previously
+  hardcoded `2016` and `10` (`RETARGET_INTERVAL`, `MIN_BLOCKS_FOR_PROJ`) — a
+  silent-drift bug: re-tuning the guard in `aggregate.py` would leave the brief
+  disagreeing. `retarget_fragment()` imports both, so there is one home.
+- **Tradeoff, accepted knowingly:** this puts brief-flavoured presentation into an
+  otherwise consumer-agnostic library. Contained by keeping `view.py` a thin
+  adapter, strictly separate from the core (`schema`/`write`/`query`/`aggregate`)
+  and importing only public query helpers. If a second consumer ever wants a
+  different format, add a function here — do not push formatting back into a
+  consumer that cannot test it.
+
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).
 - Claude Project = working context. This `DECISIONS.md` + key source files go in

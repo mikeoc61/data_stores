@@ -10,6 +10,7 @@ from .query import (
     sma200,
     sma200_pct,
 )
+from .view import OnchainDayView, onchain_day_view
 
 __all__ = [
     "write_snapshot",
@@ -24,4 +25,6 @@ __all__ = [
     "day_pace_retarget",
     "sma200",
     "sma200_pct",
+    "OnchainDayView",
+    "onchain_day_view",
 ]
