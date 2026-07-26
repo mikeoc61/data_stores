@@ -325,6 +325,20 @@ expensive to learn; do not re-derive them from scratch.
   −33%/−50% at miner-stress washouts vs 0%/−3% in euphoria. It is the strongest
   single regime discriminator found, and it is immune to the #17 weekly cycle
   (`getnetworkhashps` uses a 1008-block ≈ 1-week window; mining has no weekend).
+- **`kraken_vol` percentile (detrended) is the fourth detector, and it marks the
+  panic day rather than the low.** Backtested at ≥95: fires on **2015-01-14
+  (99.8)** post-Mt.Gox and **2022-11-09 (97.5)** FTX — both acute single-day
+  capitulations — and on nothing else. It stays quiet at the slow 2018 grind
+  (70.7), at the 2021 supply shock where trading volume actually *fell* (5.9),
+  and at the 2022-11-21 price low twelve days after the panic it did catch
+  (72.3). Crucially it is quiet across **all four** euphoria dates (69.0, 70.8,
+  47.1, 17.4) — none within 25 points of the threshold — so the direction-agnostic
+  concern does not bite: tops do not produce exceptional volume against their own
+  trailing window, because the window is already full of busy days.
+- **Net: four washout types, four different detectors, no single covering
+  measure.** 2018 → fee percentile + hashrate; 2021 China ban → hashrate alone;
+  2015 & 2022 acute capitulations → volume alone. Do not expect any one signal to
+  generalize; the value is in the set.
 - Euphoria never produces a false apathy signal (streak 0 in all three cases),
   though the percentile is only mid-range at the 2021-11 ATH — by then fees had
   cooled to 2.45% against a window still holding the 2021-04 fee mania. High
