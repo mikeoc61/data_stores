@@ -137,7 +137,7 @@ briefing agent, and ad-hoc analysis can query history.
   by *actual* timestamp with a `BOUNDARY_MARGIN` scan, never by assuming the first
   block past a boundary is the boundary.
 
-### 13. Schema (v2, now v3) — stored raw daily facts; derived series are query-time SQL
+### 13. Store raw daily facts; derived series are query-time SQL (introduced v2)
 - Renames: `blocks_24h` → `blocks_day` (a calendar-day count, not a rolling
   window); `btc.price` → `btc.close`.
 - **Dropped `hash_rate_7d`, `tx_rate_7d`.** They are pure functions of the stored
@@ -162,7 +162,7 @@ briefing agent, and ad-hoc analysis can query history.
   old point-in-time integer.
 
 ### 14. `btc` stores raw daily bars; SMA is query-time; close ≠ the brief's live spot
-- **Volume added as `kraken_vol` / `kraken_trades` (schema v4, 2026-07-26).**
+- **Volume added as `kraken_vol` / `kraken_trades` (introduced v4, 2026-07-26).**
   Their absence was schema lineage, not judgment: v1's columns came from the
   composer, whose only price collector produced spot. When Step 4 switched to
   Kraken OHLCV the new source was mapped onto the *old* columns, so volume was
@@ -257,6 +257,25 @@ briefing agent, and ad-hoc analysis can query history.
   the retarget branches, and the CLI. Run with any env that has pytest + duckdb +
   `market_warehouse`. New `scripts/` helpers should be import-safe and land tests
   here rather than being pushed into the warehouse package.
+
+## Schema versions
+
+`SCHEMA_VERSION` in `schema.py` is authoritative and the README lists the current
+shape; neither is restated in the decisions above, where a version number means
+**"introduced in"** rather than "current" — a title claiming the current version
+has to be re-edited on every bump, and twice went stale doing so.
+
+| ver | change | why |
+|---|---|---|
+| v1 | `onchain(… blocks_24h, hash_rate_7d, tx_rate_7d)`, `btc(price, sma200, sma200_pct)` | composer-era shape: whatever the brief already had parsed (#4) |
+| v2 | `blocks_24h`→`blocks_day`, `price`→`close`; dropped `hash_rate_7d`/`tx_rate_7d` | UTC-day bucketing made the rolling names wrong; `*_7d` are pure functions of the series (#13) |
+| v3 | `btc` trimmed to `(date, close)`; `sma200`/`sma200_pct` removed | same raw-facts rule applied to `btc` — a 200-day SMA is derived (#14) |
+| v4 | `btc` gains `kraken_vol`, `kraken_trades` | volume was already being fetched and discarded; it is a raw daily fact (#14) |
+
+No migration path is maintained. `apply_schema` is `CREATE TABLE IF NOT EXISTS`,
+so an older table is not altered in place — the affected table is dropped and
+re-backfilled. That is cheap for `btc` (CSV, seconds) and expensive for `onchain`
+(~3h node sweep), which is why `btc` absorbed three of the four changes.
 
 ## Signals
 
