@@ -4,7 +4,7 @@ import datetime
 
 import pytest
 
-from market_warehouse.aggregate import aggregate_day
+from market_warehouse.aggregate import _retarget_proj, aggregate_day
 from market_warehouse.write import _ONCHAIN_COLS
 
 DAY = datetime.date(2020, 1, 2)
@@ -106,3 +106,15 @@ def test_aggregate_day_keys_match_schema():
 def test_aggregate_day_returns_none_for_day_with_no_blocks():
     rpc = FakeRPC(_chain())
     assert aggregate_day(datetime.date(2030, 1, 1), rpc) is None
+
+
+def test_retarget_proj_none_near_period_boundary():
+    rpc = FakeRPC(_chain())
+    # height 100: blocks_elapsed = 100 % 2016 = 100 < 144 -> unstable pace -> None
+    assert _retarget_proj(rpc, 100) is None
+
+
+def test_retarget_proj_computed_once_period_is_established():
+    rpc = FakeRPC(_chain())
+    # height 147: blocks_elapsed = 147 >= 144 -> stable enough to project
+    assert _retarget_proj(rpc, 147) is not None

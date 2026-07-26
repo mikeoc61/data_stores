@@ -171,6 +171,10 @@ briefing agent, and ad-hoc analysis can query history.
   the brief's display. The **day-pace** variant `(blocks_day/144−1)·100` is
   **query-time** (`day_pace_retarget`) — more responsive (no period-average
   dilution) and the **preferred** value for miner-stress signal thresholds.
+  Stored `retarget_proj` is **NULL for the first `MIN_BLOCKS_FOR_PROJ`=144 blocks**
+  of a period: with tiny `blocks_elapsed` the pace estimate is unstable (a few
+  fast/slow blocks produce wild projections like −54%). The composer's live line
+  falls back to the day-pace variant in that window rather than showing garbage.
 - `block_fullness` is now a DOUBLE (daily mean of `total_weight/4e6·100`), not the
   old point-in-time integer.
 

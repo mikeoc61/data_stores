@@ -9,6 +9,7 @@ from typing import Any, Mapping, Protocol
 HASHPS_WINDOW = 1008
 RETARGET_INTERVAL = 2016
 BOUNDARY_MARGIN = 20
+MIN_BLOCKS_FOR_PROJ = 144
 STAT_FIELDS: tuple[str, ...] = (
     "time",
     "totalfee",
@@ -61,7 +62,7 @@ def _day_heights(rpc: NodeRPC, start_ts: int, end_ts: int, tip: int) -> list[int
 def _retarget_proj(rpc: NodeRPC, height: int) -> float | None:
     retarget_start = height - height % RETARGET_INTERVAL
     blocks_elapsed = height - retarget_start
-    if blocks_elapsed <= 0:
+    if blocks_elapsed < MIN_BLOCKS_FOR_PROJ:
         return None
     start_time = rpc.block_time(retarget_start)
     tip_time = rpc.block_time(height)
