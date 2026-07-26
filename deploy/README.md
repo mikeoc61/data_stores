@@ -79,11 +79,43 @@ will not walk all of history). So: backfill first, then enable the timer.
 
 ## btc close backfill (Step 4, one-shot)
 
-Deep price history comes from Kraken's downloadable OHLCVT CSV (the REST API only
-serves ~720 recent days). The daily timer keeps the recent edge current from REST.
+Deep price history comes from Kraken's downloadable OHLCVT CSV; the daily timer
+keeps the recent edge current from REST.
 
-1. Download the daily CSV once from Kraken's historical market data
-   (`XBT/USD`, 1440-min interval → `XBTUSD_1440.csv`) and copy it to the Pi.
+**Why both, and why the CSV cannot be dropped.** The REST endpoint is hard-capped
+at the 720 most recent candles and `since` does NOT paginate backward — verified
+2026-07-26: a plain request and one with `since=1381017600` (2013-10-06) returned
+the *identical* 721 candles, 2024-08-05 .. 2026-07-26. So REST cannot see past
+~2024-08; roughly 11 years of history exists only in the bulk archive. The two
+overlap by design and the upsert is idempotent, so re-running either is safe.
+
+1. Obtain the daily CSV once and copy it to the Pi. **This file is the sole
+   provenance of all deep price history — record where you got it.**
+
+   - Source: Kraken's **bulk historical OHLCVT download** — a single large
+     archive covering *all* pairs and intervals, not a per-pair file. Extract
+     `XBTUSD_1440.csv` (XBT/USD at the 1440-minute daily interval) and discard
+     the rest. Expect a long download. Refreshed quarterly, so it always ends
+     weeks-to-months short of today.
+   - Format: **no header row**, 7 columns
+     `unixtime,open,high,low,close,volume,trades`. The parser tolerates a header
+     if one appears, but does not require it.
+   - Fingerprint of the copy used for the 2026-07 backfill — check a replacement
+     matches before trusting a re-run:
+
+     ```bash
+     head -1 ~/XBTUSD_1440.csv   # 1381017600,122.0,122.0,122.0,122.0,0.1,1
+     tail -1 ~/XBTUSD_1440.csv   # last bar; quarterly dumps end well before today
+     wc -l  < ~/XBTUSD_1440.csv  # 4457 rows @ 2013-10-06 .. 2025-12-31
+     ```
+
+     First bar is 2013-10-06 (Kraken's BTC launch: $122.00, 0.1 BTC, 1 trade).
+     4457 rows across 4470 calendar days — the ~13 absent days are early
+     zero-trade days, not corruption.
+   - **Independent corroboration:** after backfilling, the warehouse's `sma200`
+     matched the briefing's unrelated `btc_sma.sh` (CoinGecko/Binance) to ~0.4%.
+     Worth repeating on any source change — two unrelated pipelines agreeing that
+     closely is the cheapest available check that the data is genuine.
 2. Make sure the `btc` table matches the current schema. It is rebuilt from the
    CSV in seconds, so on any `btc` schema change just drop and re-backfill --
    there is no equivalent of the 3h on-chain sweep to protect:
@@ -94,11 +126,17 @@ serves ~720 recent days). The daily timer keeps the recent edge current from RES
 
    (Schema v4 added `kraken_vol` / `kraken_trades`; a v3 table lacks them and
    `CREATE TABLE IF NOT EXISTS` will not add them.)
-3. Backfill (resumable, upsert — safe to re-run). For a 200-day SMA valid from
-   2016-01-01, start ~200 days earlier:
+3. Backfill (resumable, upsert — safe to re-run). With no `--start-date` it
+   takes everything the CSV provides, currently back to 2013-10-06:
 
    ```bash
-   python3 -m market_warehouse.btc_backfill --csv ~/XBTUSD_1440.csv --start-date 2015-06-15 --verbose
+   python3 -m market_warehouse.btc_backfill --csv ~/XBTUSD_1440.csv --verbose
+   ```
+
+4. Fill the REST edge the quarterly CSV cannot cover, then verify:
+
+   ```bash
+   python3 -m market_warehouse.daily_update --verbose
    python3 -c "from market_warehouse import latest, sma200, sma200_pct; print(latest('btc')); print('sma200', sma200(), sma200_pct())"
    ```
 

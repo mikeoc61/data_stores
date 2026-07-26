@@ -100,3 +100,24 @@ def test_parse_ohlc_json_finds_pair_key_generically():
     bars = _parse_ohlc_json(payload)
     assert bars[D1]["close"] == 9.5
     assert bars[D1]["kraken_vol"] == 7.5
+
+
+# The real Kraken OHLCVT dump has NO header row and starts at Kraken's BTC
+# launch: 2013-10-06, $122.00, 0.1 BTC on a single trade.
+REAL_CSV_HEAD = """\
+1381017600,122.0,122.0,122.0,122.0,0.1,1
+1381104000,123.61,123.61,123.61,123.61,0.1,1
+"""
+
+
+def test_parse_headerless_csv_as_kraken_actually_ships_it():
+    bars = _parse_csv(REAL_CSV_HEAD)
+    d = datetime.date(2013, 10, 6)
+    assert bars[d]["close"] == 122.0
+    assert bars[d]["kraken_vol"] == 0.1
+    assert bars[d]["kraken_trades"] == 1
+    assert len(bars) == 2
+
+
+def test_header_row_is_tolerated_but_not_required():
+    assert len(_parse_csv(CSV)) == len(_parse_csv(CSV.split("\n", 1)[1]))

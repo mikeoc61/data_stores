@@ -9,7 +9,7 @@ from .daily_update import ONE_DAY, _max_date, last_complete_utc_day
 from .price import KrakenCsvSource, PriceSource
 from .write import _db_path, write_snapshots
 
-DEFAULT_START = datetime.date(2016, 1, 1)
+NO_LOWER_BOUND = datetime.date.min
 
 log = logging.getLogger("market_warehouse.btc_backfill")
 
@@ -26,7 +26,11 @@ def main(
     )
     parser.add_argument("--db", default=None)
     parser.add_argument("--csv", default=None, help="Kraken OHLCVT CSV (e.g. XBTUSD_1440.csv)")
-    parser.add_argument("--start-date", default=DEFAULT_START.isoformat())
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="default: no lower bound — take everything the CSV provides",
+    )
     parser.add_argument("--end-date", default=None, help="default: last complete UTC day")
     parser.add_argument("--chunk", type=int, default=1000)
     parser.add_argument("--no-resume", action="store_true")
@@ -46,7 +50,11 @@ def main(
         price_source = KrakenCsvSource(args.csv)
 
     db_path = pathlib.Path(args.db) if args.db else _db_path()
-    start = datetime.date.fromisoformat(args.start_date)
+    start = (
+        datetime.date.fromisoformat(args.start_date)
+        if args.start_date
+        else NO_LOWER_BOUND
+    )
     end = (
         datetime.date.fromisoformat(args.end_date)
         if args.end_date
@@ -69,10 +77,13 @@ def main(
         for d, bar in sorted(bars.items())
         if start <= d <= end
     ]
-    log.info("btc backfill %s .. %s: %d bar(s) from source", start, end, len(rows))
     if not rows:
-        log.warning("no closes in range — check the CSV covers %s..%s", start, end)
+        log.warning("no bars in range — check the CSV covers %s..%s", start, end)
         return 1
+    log.info(
+        "btc backfill %s .. %s: %d bar(s) from source",
+        rows[0][0], rows[-1][0], len(rows),
+    )
 
     if args.dry_run:
         log.info("dry-run: %d btc close(s) (nothing written); latest %s", len(rows), rows[-1][0])

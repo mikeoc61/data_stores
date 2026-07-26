@@ -117,3 +117,20 @@ def test_backfill_persists_volume_and_trades(db):
     assert row["close"] == 101.0
     assert row["kraken_vol"] == 1010.0
     assert row["kraken_trades"] == 101
+
+
+def test_default_start_takes_everything_the_source_provides(db):
+    # Guards a footgun: a hardcoded default start silently truncates history
+    # when a later CSV reaches further back than the default.
+    src = FakeSource(_closes("2013-10-06", [100.0, 101.0, 102.0]))
+    assert main(["--db", str(db), "--end-date", "2013-10-08"], price_source=src) == 0
+    assert _btc_dates(db)[0] == datetime.date(2013, 10, 6)
+
+
+def test_explicit_start_still_clips(db):
+    src = FakeSource(_closes("2013-10-06", [100.0, 101.0, 102.0]))
+    assert main(
+        ["--db", str(db), "--start-date", "2013-10-07", "--end-date", "2013-10-08"],
+        price_source=src,
+    ) == 0
+    assert _btc_dates(db)[0] == datetime.date(2013, 10, 7)

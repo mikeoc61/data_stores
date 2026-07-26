@@ -177,6 +177,16 @@ briefing agent, and ad-hoc analysis can query history.
   a cross-exchange aggregate (CCData, Kaiko, CoinGecko trusted volume) is the
   upgrade — at the cost of third-party methodology, API terms, and losing
   exact-candle consistency with this close.
+- **Price history runs deeper than on-chain, and early volume is not comparable.**
+  The CSV starts **2013-10-06** (Kraken's BTC launch: $122.00, 0.1 BTC, one
+  trade), so `btc` covers ~2.3 years more than `onchain` (2016-01-01). Cross-
+  domain joins are naturally limited to the on-chain era; btc-only analysis can
+  reach back further, and 2015's ~$200 bottom is a genuine washout reference.
+  **But `kraken_vol` spans six orders of magnitude** over that history. Any
+  long-window volume percentile reaching into 2013–2014 will rank every modern
+  day at ~the 100th percentile. The 730-day default window keeps this out of the
+  way; it is a live trap for anything that reaches further. `close` has no such
+  problem — a 2013 price is a legitimate price.
 - **`vwap` is deliberately NOT stored.** It exists only in the REST response, not
   the CSV dump, so it would be NULL across the entire CSV-backfilled history
   (2015→) and present only on the ~720-day REST edge — useless for the percentile
@@ -200,12 +210,15 @@ briefing agent, and ad-hoc analysis can query history.
   bar for analytics vs. "what is BTC right now." Do not reconcile them.
 
 ### 15. Kraken as the `btc.close` source: CSV for deep history, REST for the daily edge
-- **Two access paths, one canonical venue.** Kraken's public REST OHLC endpoint
-  only serves the last ~720 candles (a hard cap), so it cannot reach 2016. Deep
-  history comes from Kraken's **downloadable OHLCVT CSV** (`XBTUSD_1440.csv`), a
-  one-time manual download consumed by the one-shot `btc_backfill`. The daily
-  edge comes from the **REST** endpoint (720 days ≫ the 1-day gap), used by
-  `daily_update`. Same venue's close either way, so the series is consistent.
+- **Two access paths, one canonical venue.** The REST endpoint is hard-capped at
+  the 720 most recent candles and **`since` does not paginate backward** —
+  verified 2026-07-26: a plain request and one with `since=1381017600`
+  (2013-10-06) returned the *identical* 721 candles, 2024-08-05 .. 2026-07-26.
+  So REST cannot reach past ~2024-08, and ~11 years of history exists only in
+  Kraken's **bulk historical OHLCVT archive** (all pairs in one large download;
+  extract `XBTUSD_1440.csv`), consumed once by `btc_backfill`. REST serves the
+  daily edge via `daily_update`. Same venue either way, so the series is
+  consistent, and the two overlap harmlessly under the idempotent upsert.
 - **Close = index 4 in both formats** (CSV `ts,o,h,l,close,vol,trades`; REST
   `[ts,o,h,l,close,vwap,vol,count]`); the date is the candle's UTC open day. The
   in-progress current day is naturally excluded because writers cap the range at
