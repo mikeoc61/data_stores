@@ -9,7 +9,7 @@ from typing import Any, Mapping, Protocol
 HASHPS_WINDOW = 1008
 RETARGET_INTERVAL = 2016
 BOUNDARY_MARGIN = 20
-MIN_BLOCKS_FOR_PROJ = 144
+MIN_BLOCKS_FOR_PROJ = 10
 STAT_FIELDS: tuple[str, ...] = (
     "time",
     "totalfee",

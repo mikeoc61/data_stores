@@ -108,13 +108,14 @@ def test_aggregate_day_returns_none_for_day_with_no_blocks():
     assert aggregate_day(datetime.date(2030, 1, 1), rpc) is None
 
 
-def test_retarget_proj_none_near_period_boundary():
+def test_retarget_proj_none_below_min_blocks():
     rpc = FakeRPC(_chain())
-    # height 100: blocks_elapsed = 100 % 2016 = 100 < 144 -> unstable pace -> None
-    assert _retarget_proj(rpc, 100) is None
+    # height 9: blocks_elapsed = 9 < 10 -> single-block noise -> None
+    assert _retarget_proj(rpc, 9) is None
 
 
-def test_retarget_proj_computed_once_period_is_established():
+def test_retarget_proj_computed_at_min_blocks():
     rpc = FakeRPC(_chain())
-    # height 147: blocks_elapsed = 147 >= 144 -> stable enough to project
-    assert _retarget_proj(rpc, 147) is not None
+    # height 10: blocks_elapsed = 10 >= 10 -> stable enough to project (keeps
+    # real early-period signal like the 2021 capitulation slow-block days)
+    assert _retarget_proj(rpc, 10) is not None

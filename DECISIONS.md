@@ -171,10 +171,13 @@ briefing agent, and ad-hoc analysis can query history.
   the brief's display. The **day-pace** variant `(blocks_day/144−1)·100` is
   **query-time** (`day_pace_retarget`) — more responsive (no period-average
   dilution) and the **preferred** value for miner-stress signal thresholds.
-  Stored `retarget_proj` is **NULL for the first `MIN_BLOCKS_FOR_PROJ`=144 blocks**
-  of a period: with tiny `blocks_elapsed` the pace estimate is unstable (a few
-  fast/slow blocks produce wild projections like −54%). The composer's live line
-  falls back to the day-pace variant in that window rather than showing garbage.
+  Stored `retarget_proj` is **NULL for the first `MIN_BLOCKS_FOR_PROJ`=10 blocks**
+  of a period: at `blocks_elapsed` ≤ ~5 the pace is single-block noise (e.g. one
+  33s block → +1718%). The threshold is **10, not 144** — by ~10 blocks the pace
+  is stable, and real early-period signal must survive: the first slow-block days
+  of the 2021 China-ban capitulation closed at `blocks_elapsed` ~16–72, already
+  projecting toward the historic −28% adjustment. The composer's live line falls
+  back to the day-pace variant only in that <10 window.
 - `block_fullness` is now a DOUBLE (daily mean of `total_weight/4e6·100`), not the
   old point-in-time integer.
 
