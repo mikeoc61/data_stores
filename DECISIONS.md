@@ -161,7 +161,32 @@ briefing agent, and ad-hoc analysis can query history.
 - `block_fullness` is now a DOUBLE (daily mean of `total_weight/4e6·100`), not the
   old point-in-time integer.
 
-### 14. `btc` stores only the daily `close`; SMA is query-time; it ≠ the brief's live spot
+### 14. `btc` stores raw daily bars; SMA is query-time; close ≠ the brief's live spot
+- **Volume added as `kraken_vol` / `kraken_trades` (schema v4, 2026-07-26).**
+  Their absence was schema lineage, not judgment: v1's columns came from the
+  composer, whose only price collector produced spot. When Step 4 switched to
+  Kraken OHLCV the new source was mapped onto the *old* columns, so volume was
+  fetched and discarded. Volume is a raw daily fact, so the rule below includes
+  it rather than excluding it.
+- **Named for the venue, deliberately.** `close` is unqualified because price
+  arbitrages across exchanges — Kraken's close is a fair proxy for *the* BTC
+  price. **Volume does not arbitrage**: it is that venue's activity, and Kraken's
+  market share drifts across years, so a cross-era volume percentile partly
+  measures Kraken's share rather than the market's. The `kraken_` prefix forces
+  every future reader to remember that. If authoritative coverage is ever needed,
+  a cross-exchange aggregate (CCData, Kaiko, CoinGecko trusted volume) is the
+  upgrade — at the cost of third-party methodology, API terms, and losing
+  exact-candle consistency with this close.
+- **`vwap` is deliberately NOT stored.** It exists only in the REST response, not
+  the CSV dump, so it would be NULL across the entire CSV-backfilled history
+  (2015→) and present only on the ~720-day REST edge — useless for the percentile
+  work over deep history that motivates having it.
+- **The two Kraken sources order columns differently** — CSV is
+  `ts,o,h,l,c,volume,trades`; REST is `ts,o,h,l,c,vwap,volume,count`. Volume sits
+  at index 5 in one and 6 in the other, so REST's *vwap* occupies the CSV's
+  *volume* slot: a naive shared index would silently store a price as a volume.
+  `price.py` reads by name from per-source index tables, with a test asserting
+  both parsers produce identical bars for the same candle.
 - **`btc(date, close)` only** (corrected 2026-07-25). `sma200`/`sma200_pct` are
   **not stored** — they are `query.py` helpers (`sma200`, `sma200_pct`), the same
   #13 reasoning that dropped `*_7d`: the 200-day SMA is a pure function of the

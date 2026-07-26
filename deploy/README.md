@@ -84,8 +84,16 @@ serves ~720 recent days). The daily timer keeps the recent edge current from RES
 
 1. Download the daily CSV once from Kraken's historical market data
    (`XBT/USD`, 1440-min interval → `XBTUSD_1440.csv`) and copy it to the Pi.
-2. Make sure the empty `btc` table is the corrected `(date, close)` shape (the
-   `DROP TABLE btc` one-liner in step 1 above); it is recreated on first write.
+2. Make sure the `btc` table matches the current schema. It is rebuilt from the
+   CSV in seconds, so on any `btc` schema change just drop and re-backfill --
+   there is no equivalent of the 3h on-chain sweep to protect:
+
+   ```bash
+   python3 -c "import duckdb; c=duckdb.connect('$HOME/data/market.duckdb'); c.execute('DROP TABLE IF EXISTS btc'); c.close()"
+   ```
+
+   (Schema v4 added `kraken_vol` / `kraken_trades`; a v3 table lacks them and
+   `CREATE TABLE IF NOT EXISTS` will not add them.)
 3. Backfill (resumable, upsert — safe to re-run). For a 200-day SMA valid from
    2016-01-01, start ~200 days earlier:
 

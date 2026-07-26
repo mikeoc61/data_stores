@@ -22,7 +22,11 @@ _ONCHAIN_COLS = (
     "retarget_proj",
 )
 
-_BTC_COLS = ("close",)
+_BTC_COLS = (
+    "close",
+    "kraken_vol",
+    "kraken_trades",
+)
 
 
 def _db_path() -> pathlib.Path:

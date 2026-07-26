@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import duckdb
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _DDL: dict[str, str] = {
     "schema_version": """
@@ -27,8 +27,10 @@ _DDL: dict[str, str] = {
     """,
     "btc": """
         CREATE TABLE IF NOT EXISTS btc (
-            date   DATE   NOT NULL PRIMARY KEY,
-            close  DOUBLE
+            date           DATE   NOT NULL PRIMARY KEY,
+            close          DOUBLE,
+            kraken_vol     DOUBLE,
+            kraken_trades  BIGINT
         )
     """,
 }

@@ -100,9 +100,9 @@ def _process_btc(
     if not need:
         log.info("btc up to date")
         return
-    closes = source.closes()
-    rows = [(d.isoformat(), {"btc": {"close": closes[d]}}) for d in need if d in closes]
-    missing = [d for d in need if d not in closes]
+    bars = source.bars()
+    rows = [(d.isoformat(), {"btc": bars[d]}) for d in need if d in bars]
+    missing = [d for d in need if d not in bars]
     if missing:
         log.warning("btc source missing %d day(s) incl %s", len(missing), missing[0])
     if dry_run:

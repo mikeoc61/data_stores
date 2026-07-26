@@ -63,13 +63,13 @@ def main(
         log.info("nothing to backfill (start %s > end %s)", start, end)
         return 0
 
-    closes = price_source.closes()
+    bars = price_source.bars()
     rows = [
-        (d.isoformat(), {"btc": {"close": c}})
-        for d, c in sorted(closes.items())
+        (d.isoformat(), {"btc": bar})
+        for d, bar in sorted(bars.items())
         if start <= d <= end
     ]
-    log.info("btc backfill %s .. %s: %d close(s) from source", start, end, len(rows))
+    log.info("btc backfill %s .. %s: %d bar(s) from source", start, end, len(rows))
     if not rows:
         log.warning("no closes in range — check the CSV covers %s..%s", start, end)
         return 1

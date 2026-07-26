@@ -18,16 +18,21 @@ def db(tmp_path) -> pathlib.Path:
 
 
 class FakeSource:
-    def __init__(self, closes: dict[datetime.date, float]) -> None:
-        self._closes = closes
+    def __init__(self, bars: dict[datetime.date, dict]) -> None:
+        self._bars = bars
 
-    def closes(self) -> dict[datetime.date, float]:
-        return self._closes
+    def bars(self) -> dict[datetime.date, dict]:
+        return self._bars
 
 
-def _closes(start: str, values: list[float]) -> dict[datetime.date, float]:
+def _closes(start: str, values: list[float]) -> dict[datetime.date, dict]:
     base = datetime.date.fromisoformat(start)
-    return {base + datetime.timedelta(days=i): v for i, v in enumerate(values)}
+    return {
+        base + datetime.timedelta(days=i): {
+            "close": v, "kraken_vol": v * 10, "kraken_trades": 100 + i
+        }
+        for i, v in enumerate(values)
+    }
 
 
 def _btc_dates(db: pathlib.Path) -> list[datetime.date]:
@@ -100,3 +105,15 @@ def test_end_date_defaults_to_last_complete_utc_day(db):
     rc = main(["--db", str(db), "--start-date", "2016-01-01"], price_source=src, now=now)
     assert rc == 0
     assert _btc_dates(db)[-1] == datetime.date(2016, 1, 5)
+
+
+def test_backfill_persists_volume_and_trades(db):
+    src = FakeSource(_closes("2016-01-01", [100.0, 101.0]))
+    assert main(
+        ["--db", str(db), "--start-date", "2016-01-01", "--end-date", "2016-01-02"],
+        price_source=src,
+    ) == 0
+    row = latest("btc", db_path=db)
+    assert row["close"] == 101.0
+    assert row["kraken_vol"] == 1010.0
+    assert row["kraken_trades"] == 101

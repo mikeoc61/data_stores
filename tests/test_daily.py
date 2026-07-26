@@ -117,16 +117,21 @@ def test_total_failure_returns_nonzero(db):
 
 
 class FakePriceSource:
-    def __init__(self, closes: dict) -> None:
-        self._closes = closes
+    def __init__(self, bars: dict) -> None:
+        self._bars = bars
 
-    def closes(self) -> dict:
-        return self._closes
+    def bars(self) -> dict:
+        return self._bars
 
 
 def _closes(start: str, values: list[float]) -> dict:
     base = datetime.date.fromisoformat(start)
-    return {base + datetime.timedelta(days=i): v for i, v in enumerate(values)}
+    return {
+        base + datetime.timedelta(days=i): {
+            "close": v, "kraken_vol": v * 10, "kraken_trades": 100 + i
+        }
+        for i, v in enumerate(values)
+    }
 
 
 def _btc_dates(db: pathlib.Path) -> list[datetime.date]:
@@ -183,7 +188,7 @@ def test_btc_source_failure_is_nonfatal(db):
     now = datetime.datetime(2026, 7, 25, 12, 0, tzinfo=UTC)
 
     class BadSource:
-        def closes(self):
+        def bars(self):
             raise RuntimeError("kraken down")
 
     rc = main(["--db", str(db)], aggregate=_fake_aggregate(), price_source=BadSource(), now=now)

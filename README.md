@@ -66,14 +66,16 @@ its repo (`scripts/warehouse_view.py`) and imports this package's query helpers
 plus the domain constants (`MIN_BLOCKS_FOR_PROJ`, `RETARGET_INTERVAL`) so they are
 never copied — see DECISIONS #16.
 
-## Schema (v3)
+## Schema (v4)
 
 - `onchain(date PK, hash_rate_ehs, difficulty_t, blocks_day, block_fullness,
   p50_fee, miner_rev, fee_subsidy, tx_rate, retarget_proj)` — raw daily facts,
   UTC-day bucketed. `retarget_proj` is the cumulative (period-pace) projection;
   the day-pace variant is query-time.
-- `btc(date PK, close)` — a daily close from an external OHLCV source (distinct
-  from the brief's live-spot display; DECISIONS #14). The 200-day SMA is a query
+- `btc(date PK, close, kraken_vol, kraken_trades)` — daily bars from Kraken.
+  `close` is unqualified because price arbitrages across venues; volume does not,
+  so it carries the `kraken_` prefix as an honest single-venue proxy (DECISIONS
+  #14). Distinct from the brief's live-spot display. The 200-day SMA is a query
   helper (`sma200`/`sma200_pct`), **not** stored — same raw-facts-only shape as
   `onchain`.
 - `schema_version(version, applied_at)`
