@@ -119,3 +119,24 @@ def test_retarget_proj_computed_at_min_blocks():
     # height 10: blocks_elapsed = 10 >= 10 -> stable enough to project (keeps
     # real early-period signal like the 2021 capitulation slow-block days)
     assert _retarget_proj(rpc, 10) is not None
+
+
+def test_retarget_proj_large_early_sample_is_in_clamp_signal():
+    # The invariant, independent of MIN_BLOCKS_FOR_PROJ's value: a large
+    # blocks_elapsed sample is real signal, not noise, and must not be nulled.
+    # China-ban capitulation shape: 770 blocks into a fresh period, ~14min blocks
+    # (hashrate crashed) -> a large-negative but in-clamp projection near -28%.
+    elapsed = 770
+    pace = 850  # seconds/block, capitulation-slow
+    start = 1_600_000_000
+    times = {0: start, elapsed: start + elapsed * pace}
+
+    class _RPC:
+        def block_time(self, height: int) -> int:
+            return times[height]
+
+    proj = _retarget_proj(_RPC(), elapsed)
+    assert proj is not None
+    assert -75.0 < proj < 300.0  # within the difficulty adjustment clamp
+    assert proj < 0  # a real capitulation-direction signal, not garbage
+    assert proj == pytest.approx((600 / pace - 1) * 100)
