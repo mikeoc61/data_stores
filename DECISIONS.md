@@ -212,26 +212,33 @@ briefing agent, and ad-hoc analysis can query history.
   price edge self-heals via gap-fill). The one-shot `btc_backfill` is a separate
   operator-run entrypoint, like the on-chain backfill.
 
-### 16. The brief's warehouse read + formatting lives in `view.py`, not the composer
-- `market_warehouse/view.py` — `onchain_day_view()` returns an `OnchainDayView`
-  (`day_line`, `stale_line`, `day_pace`, `retarget_fragment()`), presentation-ready.
-  The composer's DB code drops from ~35 lines to ~6: call it, render the strings.
-- **Why in the package, not the briefing repo** — the same reasoning as #11:
-  `compose_briefing.py` is not import-safe (`sys.argv[1]` at module top), and the
-  briefing repo has **no test infrastructure** (no pytest, rsync-deployed
-  appliance). Code placed there is untestable in practice. In the package it is
-  covered by the existing suite (`tests/test_view.py`), and the column→display
-  contract sits next to the schema that defines it.
-- **It also removes duplicated domain constants.** The composer previously
-  hardcoded `2016` and `10` (`RETARGET_INTERVAL`, `MIN_BLOCKS_FOR_PROJ`) — a
-  silent-drift bug: re-tuning the guard in `aggregate.py` would leave the brief
-  disagreeing. `retarget_fragment()` imports both, so there is one home.
-- **Tradeoff, accepted knowingly:** this puts brief-flavoured presentation into an
-  otherwise consumer-agnostic library. Contained by keeping `view.py` a thin
-  adapter, strictly separate from the core (`schema`/`write`/`query`/`aggregate`)
-  and importing only public query helpers. If a second consumer ever wants a
-  different format, add a function here — do not push formatting back into a
-  consumer that cannot test it.
+### 16. The brief's warehouse read + formatting lives in the briefing repo, beside the composer
+- `openclaw-briefing-agent/scripts/warehouse_view.py` — `onchain_day_view()`
+  returns an `OnchainDayView` (`day_line`, `stale_line`, `day_pace`,
+  `retarget_fragment()`), presentation-ready. The composer's DB code drops from
+  ~35 lines to ~6: `import warehouse_view`, call it, render the strings.
+- **Why beside the composer, not in the package.** Presentation is a *consumer*
+  concern; the warehouse stays consumer-agnostic (#2 — data is the durable asset,
+  consumers are ephemeral). It also matches the briefing's existing architecture:
+  `scripts/` is full of standalone, individually-runnable helpers, imported as
+  plain siblings (`import local_config`). A first pass put this in
+  `market_warehouse/view.py`; that coupled the library to one consumer's line
+  format and was reversed.
+- **Standalone-runnable by design.** `./warehouse_view.py` (plus `--json`,
+  `--db`, `--retarget-proj/--blocks-left`) prints exactly what the brief would
+  show, so the DB query can be inspected on the Pi without running collectors —
+  the same debuggability every other `scripts/` collector has.
+- **Domain constants are imported, never copied.** The composer previously
+  hardcoded `2016` and `10`; `warehouse_view` imports `RETARGET_INTERVAL` and
+  `MIN_BLOCKS_FOR_PROJ` from `market_warehouse.aggregate`, so re-tuning the guard
+  cannot leave the brief silently disagreeing. A test asserts the identity.
+- **Testability is preserved, not traded away.** The briefing repo previously had
+  no test infrastructure — the reason #11 pushed `build_payload` into the package.
+  That gap is now closed: a root `conftest.py` puts `scripts/` on `sys.path` and
+  `tests/test_warehouse_view.py` covers formatting, staleness, NULL/partial rows,
+  the retarget branches, and the CLI. Run with any env that has pytest + duckdb +
+  `market_warehouse`. New `scripts/` helpers should be import-safe and land tests
+  here rather than being pushed into the warehouse package.
 
 ## Repo/project relationship
 - `data_stores` = local git repo (umbrella; package `market_warehouse` inside).

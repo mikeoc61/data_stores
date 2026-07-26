@@ -48,7 +48,6 @@ from market_warehouse import aggregate_day, write_snapshot, write_snapshots  # i
 from market_warehouse import latest, moving_average, apathy_streak            # readers
 from market_warehouse import hash_rate_7d, tx_rate_7d, day_pace_retarget      # derivations
 from market_warehouse import sma200, sma200_pct                              # derivations
-from market_warehouse import onchain_day_view                                # brief view
 ```
 
 `aggregate_day(date, rpc)` returns the `onchain` payload for one UTC day, computed
@@ -62,11 +61,10 @@ query-time derivations of the daily series (`hash_rate_7d`, `tx_rate_7d`,
 `day_pace_retarget`), computed by DATE range so a gap can't mislabel a "7d"
 window. See DECISIONS #13.
 
-`onchain_day_view()` (in `view.py`) is a thin read+format adapter for the
-briefing: it returns presentation-ready strings for the latest complete day, a
-staleness warning, and the retarget fragment (cumulative vs day-pace). It lives
-here rather than in the briefing repo so it is unit-testable and so the domain
-constants have one home — see DECISIONS #16.
+Consumers own their own presentation. The briefing's read+format adapter lives in
+its repo (`scripts/warehouse_view.py`) and imports this package's query helpers
+plus the domain constants (`MIN_BLOCKS_FOR_PROJ`, `RETARGET_INTERVAL`) so they are
+never copied — see DECISIONS #16.
 
 ## Schema (v3)
 
