@@ -165,25 +165,39 @@ def percentile_rank(
     column: str,
     window_days: int = 730,
     table: str = "onchain",
+    smooth_days: int = 1,
     db_path: str | os.PathLike[str] | None = None,
 ) -> float | None:
-    """Percentile (0-100) of the latest non-NULL value within its trailing
-    window. Returns None if fewer than MIN_WINDOW_ROWS valid rows in-window.
+    """Percentile (0-100) of the latest value within its trailing window.
+    Returns None if fewer than MIN_WINDOW_ROWS valid rows in-window.
     Self-calibrating alternative to absolute thresholds: 'fee_subsidy at the
     3rd percentile of 2y' survives network regime shifts that '< 1.0%' does not.
+
+    `smooth_days` first replaces each day with a trailing mean over that many
+    DAYS (by date range, so gaps cannot mislabel the window). Use 7 for any
+    column with weekly seasonality: `fee_subsidy` runs ~27% lower at weekends,
+    which puts 73% of its bottom decile on Sat/Sun against a 29% baseline — so
+    the raw daily percentile substantially reports the day of the week. A 7-day
+    mean spans exactly one of each weekday, cancelling that exactly.
     """
     con = _connect(db_path)
     try:
         row = con.execute(
             f"""
-            WITH latest AS (
-                SELECT {column} AS v FROM {table}
-                WHERE {column} IS NOT NULL ORDER BY date DESC LIMIT 1
-            ),
-            w AS (
-                SELECT {column} AS v FROM {table}
+            WITH s AS (
+                SELECT date,
+                       avg({column}) OVER (
+                           ORDER BY date
+                           RANGE BETWEEN INTERVAL '{max(0, smooth_days - 1)}' DAY PRECEDING
+                                     AND CURRENT ROW
+                       ) AS v
+                FROM {table}
                 WHERE {column} IS NOT NULL
-                  AND date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
+            ),
+            latest AS (SELECT v FROM s ORDER BY date DESC LIMIT 1),
+            w AS (
+                SELECT v FROM s
+                WHERE date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
             )
             SELECT
                 (SELECT count(*) FROM w),
@@ -237,10 +251,16 @@ def apathy_streak_pct(
     db_path: str | os.PathLike[str] | None = None,
 ) -> int | None:
     """Consecutive days (from latest backward) where fee_subsidy sits below its
-    trailing-window Nth-percentile threshold. Percentile-based successor to
-    apathy_streak()'s absolute fee_subsidy_max: the threshold recalibrates to the
-    window, so 'deep apathy' stays meaningful as the fee regime drifts.
-    Returns None if the threshold can't be computed (empty/short window).
+    trailing-window Nth-percentile threshold.
+
+    A COMPLEMENT to apathy_streak(), not a successor — they answer different
+    questions. The threshold is drawn from the same window it measures, so by
+    construction only `percentile`% of days can ever fall below it however
+    depressed the regime: this detects a NEW LEG DOWN relative to recent history,
+    and cannot report the duration of a sustained regime (use apathy_streak's
+    absolute threshold for that). Compounding it, fee_subsidy is ~27% lower at
+    weekends, so the bottom decile is 73% Sat/Sun and short streaks largely track
+    the calendar. Returns None if the threshold can't be computed.
     """
     con = _connect(db_path)
     try:

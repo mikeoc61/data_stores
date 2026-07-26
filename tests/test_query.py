@@ -180,3 +180,51 @@ def test_percentile_rank_returns_float_not_decimal(db):
     v = percentile_rank("fee_subsidy", window_days=730, db_path=db)
     assert isinstance(v, float)
     assert v - 1.0 == pytest.approx(98.0)
+
+
+def _weekly_seasonal(days: int = 400, start: str = "2024-01-01") -> list[dict]:
+    """Flat regime with a realistic weekend dip (~27% lower Sat/Sun)."""
+    base = datetime.date.fromisoformat(start)
+    out = []
+    for i in range(days):
+        d = base + datetime.timedelta(days=i)
+        out.append({"fee_subsidy": 0.73 if d.weekday() >= 5 else 1.00})
+    return out
+
+
+def test_percentile_rank_raw_is_confounded_by_weekend_seasonality(db):
+    # Series ends on a Saturday; the raw daily percentile reports the calendar.
+    vals = _weekly_seasonal(days=405, start="2024-01-01")
+    _seed_onchain(db, vals, start="2024-01-01")
+    end = datetime.date(2024, 1, 1) + datetime.timedelta(days=404)
+    assert end.weekday() >= 5
+    raw = percentile_rank("fee_subsidy", window_days=730, db_path=db)
+    assert raw < 30.0  # a weekend lands in the bottom of the raw distribution
+
+
+def test_percentile_rank_smoothing_cancels_weekend_seasonality(db):
+    # Same data, 7d mean: every window holds one of each weekday, so the
+    # seasonal component cancels and a flat regime sits mid-distribution.
+    _seed_onchain(db, _weekly_seasonal(days=405, start="2024-01-01"), start="2024-01-01")
+    smoothed = percentile_rank(
+        "fee_subsidy", window_days=730, smooth_days=7, db_path=db
+    )
+    assert 20.0 < smoothed < 80.0
+
+
+def test_percentile_rank_smoothing_still_detects_a_real_drop(db):
+    # Seasonality plus a genuine late collapse -> smoothed percentile is low.
+    vals = _weekly_seasonal(days=380, start="2024-01-01")
+    vals += [{"fee_subsidy": 0.10} for _ in range(20)]
+    _seed_onchain(db, vals, start="2024-01-01")
+    smoothed = percentile_rank(
+        "fee_subsidy", window_days=730, smooth_days=7, db_path=db
+    )
+    assert smoothed is not None and smoothed < 5.0
+
+
+def test_percentile_rank_smooth_days_one_matches_unsmoothed(db):
+    _seed_onchain(db, [{"fee_subsidy": float(i)} for i in range(1, 101)])
+    assert percentile_rank("fee_subsidy", db_path=db) == percentile_rank(
+        "fee_subsidy", smooth_days=1, db_path=db
+    )
