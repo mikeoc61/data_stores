@@ -9,6 +9,9 @@ from .query import (
     day_pace_retarget,
     sma200,
     sma200_pct,
+    percentile_rank,
+    drawdown_from_high,
+    apathy_streak_pct,
 )
 
 __all__ = [
@@ -24,4 +27,7 @@ __all__ = [
     "day_pace_retarget",
     "sma200",
     "sma200_pct",
+    "percentile_rank",
+    "drawdown_from_high",
+    "apathy_streak_pct",
 ]

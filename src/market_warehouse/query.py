@@ -156,3 +156,115 @@ def apathy_streak(
         return streak
     finally:
         con.close()
+
+
+MIN_WINDOW_ROWS = 30
+
+
+def percentile_rank(
+    column: str,
+    window_days: int = 730,
+    table: str = "onchain",
+    db_path: str | os.PathLike[str] | None = None,
+) -> float | None:
+    """Percentile (0-100) of the latest non-NULL value within its trailing
+    window. Returns None if fewer than MIN_WINDOW_ROWS valid rows in-window.
+    Self-calibrating alternative to absolute thresholds: 'fee_subsidy at the
+    3rd percentile of 2y' survives network regime shifts that '< 1.0%' does not.
+    """
+    con = _connect(db_path)
+    try:
+        row = con.execute(
+            f"""
+            WITH latest AS (
+                SELECT {column} AS v FROM {table}
+                WHERE {column} IS NOT NULL ORDER BY date DESC LIMIT 1
+            ),
+            w AS (
+                SELECT {column} AS v FROM {table}
+                WHERE {column} IS NOT NULL
+                  AND date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
+            )
+            SELECT
+                (SELECT count(*) FROM w),
+                (SELECT 100.0 * count(*) FROM w, latest WHERE w.v < latest.v)
+            """
+        ).fetchone()
+        n = row[0]
+        if n is None or n < MIN_WINDOW_ROWS:
+            return None
+        return float(row[1]) / n
+    finally:
+        con.close()
+
+
+def drawdown_from_high(
+    column: str,
+    window_days: int = 90,
+    table: str = "onchain",
+    db_path: str | os.PathLike[str] | None = None,
+) -> float | None:
+    """Latest non-NULL value as signed % relative to the trailing-window max
+    (0 at a new high, negative when below). For hash_rate_ehs this is a stabler
+    miner-stress gauge than the 7d point-to-point delta. None if < MIN_WINDOW_ROWS.
+    """
+    con = _connect(db_path)
+    try:
+        row = con.execute(
+            f"""
+            WITH w AS (
+                SELECT date, {column} AS v FROM {table}
+                WHERE {column} IS NOT NULL
+                  AND date > (SELECT max(date) FROM {table}) - INTERVAL '{window_days}' DAY
+            )
+            SELECT
+                (SELECT count(*) FROM w),
+                (SELECT v FROM w ORDER BY date DESC LIMIT 1),
+                (SELECT max(v) FROM w)
+            """
+        ).fetchone()
+        n, latest_v, mx = row
+        if not n or n < MIN_WINDOW_ROWS or latest_v is None or not mx:
+            return None
+        return (latest_v - mx) / mx * 100
+    finally:
+        con.close()
+
+
+def apathy_streak_pct(
+    percentile: float = 10.0,
+    window_days: int = 730,
+    db_path: str | os.PathLike[str] | None = None,
+) -> int | None:
+    """Consecutive days (from latest backward) where fee_subsidy sits below its
+    trailing-window Nth-percentile threshold. Percentile-based successor to
+    apathy_streak()'s absolute fee_subsidy_max: the threshold recalibrates to the
+    window, so 'deep apathy' stays meaningful as the fee regime drifts.
+    Returns None if the threshold can't be computed (empty/short window).
+    """
+    con = _connect(db_path)
+    try:
+        thr = con.execute(
+            f"""
+            SELECT quantile_cont(fee_subsidy, {percentile / 100.0})
+            FROM onchain
+            WHERE fee_subsidy IS NOT NULL
+              AND date > (SELECT max(date) FROM onchain) - INTERVAL '{window_days}' DAY
+            """
+        ).fetchone()[0]
+        if thr is None:
+            return None
+        rows = con.execute(
+            "SELECT fee_subsidy FROM onchain ORDER BY date DESC"
+        ).fetchall()
+        streak = 0
+        for (fs,) in rows:
+            if fs is None:
+                break
+            if fs < thr:
+                streak += 1
+            else:
+                break
+        return streak
+    finally:
+        con.close()
