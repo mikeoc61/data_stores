@@ -44,10 +44,13 @@ is never committed (`.gitignore` excludes `*.duckdb`).
 ## Seam
 
 ```python
-from market_warehouse import aggregate_day, write_snapshot, write_snapshots  # ingester
-from market_warehouse import latest, moving_average, apathy_streak            # readers
+from market_warehouse import aggregate_day, aggregate_range                   # ingester
+from market_warehouse import write_snapshot, write_snapshots                  # ingester
+from market_warehouse import latest, moving_average                           # readers
 from market_warehouse import hash_rate_7d, tx_rate_7d, day_pace_retarget      # derivations
-from market_warehouse import sma200, sma200_pct                              # derivations
+from market_warehouse import sma200, sma200_pct                               # derivations
+from market_warehouse import percentile_rank, drawdown_from_high              # signals
+from market_warehouse import apathy_streak, apathy_streak_pct                 # signals
 ```
 
 `aggregate_day(date, rpc)` returns the `onchain` payload for one UTC day, computed
@@ -65,6 +68,30 @@ Consumers own their own presentation. The briefing's read+format adapter lives i
 its repo (`scripts/warehouse_view.py`) and imports this package's query helpers
 plus the domain constants (`MIN_BLOCKS_FOR_PROJ`, `RETARGET_INTERVAL`) so they are
 never copied — see DECISIONS #16.
+
+## Signals
+
+`percentile_rank` places today's value in its trailing window; `drawdown_from_high`
+measures distance from a rolling peak; `apathy_streak` counts days below an
+absolute threshold. Three properties are load-bearing and easy to get wrong —
+each is documented with its evidence in DECISIONS #17–#19:
+
+- **Weekly seasonality.** `fee_subsidy` runs ~27% lower at weekends, so a raw
+  daily percentile substantially reports the day of the week. Correct with
+  `smooth_days=7` (steadier) or `detrend_dow=True` (keeps daily resolution — use
+  it for anything transient, like volume spikes).
+- **Relative ≠ absolute.** A percentile threshold recalibrates to the window it
+  measures, so it detects a *new low* and can never express the *duration* of a
+  sustained regime. `apathy_streak_pct` complements `apathy_streak`; it does not
+  replace it.
+- **No single washout detector.** Backtested against 2015/2018/2021/2022, each
+  washout type needs a different measure: slow demand grind → fee percentile +
+  hashrate; supply shock → hashrate alone; acute capitulation → volume alone.
+
+`tools/backtest_signals.py` evaluates all of them as-of historical dates (it
+copies rows up to a cut-off into a temp DB, since the helpers anchor to
+`max(date)`; the real warehouse is opened `READ_ONLY`). Run it after any signal
+change.
 
 ## Schema (v4)
 
@@ -101,16 +128,20 @@ the full Pi procedure and the `.service`/`.timer` units.
 
 ## Roadmap
 
-1. Schema v3 + `aggregate_day` + query helpers (Mac-tested). **(done)**
+1. Schema + `aggregate_day` + query helpers. **(live — schema v4)**
 2. Systemd daily writer (`daily_update`, gap-filling, sole writer) + units in
    `deploy/`. **(live on Pi)**
-3. One-shot resumable on-chain backfill since 2016 (`getblockstats` over
-   historical heights). **(live on Pi — 2016→tip)**
-4. `btc.close` from Kraken (CSV for 2016 depth + REST for the daily edge), folded
-   into the daily writer + a one-shot `btc-backfill`. **(live on Pi)**
+3. One-shot resumable on-chain backfill (`getblockstats` over historical
+   heights). **(live on Pi — 2016→tip)**
+4. `btc` daily bars from Kraken (bulk CSV for depth + REST for the daily edge),
+   folded into the daily writer + a one-shot `btc-backfill`.
+   **(live on Pi — 2013→tip, with volume)**
 5. Refactor `compose_briefing.py`: read the latest complete-day row read-only,
-   split Live vs Day (UTC) render. **(done — pending first Pi brief)**
-6. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
-   `farside_btc.json`.
-7. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
+   split Live vs Day (UTC) render. **(live on Pi)**
+6. Signal layer — percentile/drawdown/streak helpers, backtested against four
+   historical regimes, surfaced as the brief's `Signal:` line and fed into the
+   LLM analyst's context. **(live on Pi)**
+7. `markets` + `credit` + `node` (long-format for multi-entity); `etf_flows` from
+   `farside_btc.json`. **(next)**
+8. Point `psignals.py` at the DB read-only; miner-stress + apathy regime flags as
    SQL over the now-deep history.
