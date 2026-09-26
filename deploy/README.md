@@ -110,8 +110,29 @@ overlap by design and the upsert is idempotent, so re-running either is safe.
      ```
 
      First bar is 2013-10-06 (Kraken's BTC launch: $122.00, 0.1 BTC, 1 trade).
-     4457 rows across 4470 calendar days — the ~13 absent days are early
-     zero-trade days, not corruption.
+     4457 rows across 4470 calendar days. 12 of the 13 absent days are genuine
+     zero-trade days in 2013-14 (checked against Kraken's public `Trades`
+     endpoint: the next trade after midnight falls on the following day).
+     The 13th, **2024-03-31**, is a hole in the dump itself: Kraken traded
+     normally that day (~17.7k trades, 00:00:01–23:59:58 UTC). Found 2026-09-26.
+   - **2024-03-31 is patched from trades, not from the dump.** Neither path in
+     this repo could fill it: gap-fill only extends the tail (`max(date)+1`
+     onward), and REST cannot reach back that far. The bar in
+     `deploy/btc_patches/XBTUSD_1440_2024-03-31.csv` was aggregated from
+     `/0/public/Trades` over the UTC day (close = last trade, volume = sum,
+     trades = count). The same aggregation reproduced 2024-04-01's stored bar
+     exactly and 2024-03-30's close exactly (volume +0.26%, one trade fewer);
+     the close sits 0.03% from Bitstamp's. Applied with the ordinary one-shot
+     backfill, bounded to the day:
+
+     ```bash
+     python3 -m market_warehouse.btc_backfill --csv deploy/btc_patches/XBTUSD_1440_2024-03-31.csv \
+       --start-date 2024-03-31 --end-date 2024-03-31 --no-resume --verbose
+     ```
+
+     **Re-apply it after any drop-and-re-backfill of `btc` (step 3)** — the dump
+     does not contain the day, so a rebuild from the CSV alone reopens the hole.
+     If a newer dump does carry 2024-03-31, prefer its bar and retire the patch.
    - **Independent corroboration:** after backfilling, the warehouse's `sma200`
      matched the briefing's unrelated `btc_sma.sh` (CoinGecko/Binance) to ~0.4%.
      Worth repeating on any source change — two unrelated pipelines agreeing that
@@ -132,6 +153,8 @@ overlap by design and the upsert is idempotent, so re-running either is safe.
    ```bash
    python3 -m market_warehouse.btc_backfill --csv ~/XBTUSD_1440.csv --verbose
    ```
+
+   Then re-apply the 2024-03-31 patch (see step 1).
 
 4. Fill the REST edge the quarterly CSV cannot cover, then verify:
 
